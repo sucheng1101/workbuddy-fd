@@ -2,13 +2,12 @@
 
 ## 当前状态
 
-- 状态：DONE（v0.1.0 设计、源码镜像构建、Docker 验证与 GitHub 同步完成）
+- 状态：进行中（v0.3.0 公开登录入口实现与 Docker 验证）
 - 项目：workbuddy-fd
-- 主分支：main
-- 基线提交：da737b1
-- 本地运行时：docker（workbuddy-fd-v0-1-0，8788，healthy；镜像 digest `sha256:7b74fb18607621be276037247db03f19ec25b3bd2155547a391e83896ae31f6b`）
-- 当前任务：v0.1.0 规格落地、版本化 Compose、本地 Docker 启动验证
-- v0.1.0 功能提交：`b446c4f`；本地收尾提交：`82ff5b8`；GitHub API 同步链：`471bebedc36bd4a6eef8da5f36e99a915f18ff4f` → `c8c5bbb40be5dd5e324ed31566f617c73d6cf352`
+- 分支：`codex/feature/public-login-v0.3.0`
+- 基线提交：`b0ee219`（v0.2.0 CLI 页面与 DeepSeek/OpenCode 配置）
+- 运行方式：Docker Compose；端口 `8788`
+- 当前版本文件：`VERSION = v0.3.0`
 
 ## 已确认范围
 
@@ -28,22 +27,77 @@
 - `upstream-hub`：Hub 上游，仅拉取
 - `upstream-panel`：Panel 参考上游，仅拉取
 
-## v0.1.0 本轮产物
+## 已完成版本
 
-- VERSION：v0.1.0
-- docs/SPEC-v0.1.0.md：权限、登录页、账号状态、结算、NewAPI 边界
-- docker-compose.v0.1.0.yml：本地构建与版本化容器
+### v0.1.0 基线
 
-## 下一步
+- 领域规格、权限矩阵、目标数据模型与版本化 Compose 已建立；
+- Docker 构建、启动、健康检查和面板访问已验证；
+- 相关基线/收尾提交：`b446c4f`、`82ff5b8`。
 
-1. 完成项目技能与会话记录；
-2. 已完成 v0.1.0 权限矩阵、目标数据模型和 OAuth 并发会话规格；
-3. 实现公开登录页、代理后台、管理员后台；
-4. Docker 本地验证已通过：`docker compose -f docker-compose.v0.1.0.yml config`、源码 `up -d --build --force-recreate`、`/health`、`/`；
-5. 已创建 `b446c4f` 并同步项目 GitHub `main`；Git Smart HTTP 受网络重置影响，采用 GitHub API 完成等价内容同步。
+### v0.2.0 CLI 配置页
+
+- 新增 `/cli` 页面和 `wb_agents.py` 配置器；
+- 支持 Codex、OpenCode、DSH、Crush、ZCode 等客户端配置描述；
+- OpenCode + DeepSeek 默认网关为 `http://127.0.0.1:8788/v1`，模型为 `deepseek-v4.1-flash`；
+- v0.2.0 Compose 与 CLI 合约测试已完成。
+
+## v0.3.0 本轮任务卡：公开登录入口
+
+1. 管理员通过面板密码创建、查看、更新、暂停、恢复和轮换公开登录页；
+2. 访客通过 `/p/{slug}` 打开可重复使用的登录页；
+3. 每次 `POST /p/{slug}/oauth/start` 生成独立 session、state、PKCE verifier 和 15 分钟过期时间；
+4. `GET /p/{slug}/oauth/poll?session=...` 只允许读取绑定页面的会话，成功结果进入 `pending_review` 摘要；
+5. 页面注册表持久化到 `accounts/public_login_pages.json`，OAuth 短期状态仅驻留内存；
+6. 公开响应不泄漏 token、UID、凭证、额度、用量或金额；
+7. 不改变现有 `/v1` 协议、账号池任务调度和 `/cli` 配置行为。
+
+### 预期接口
+
+- `GET /public-login/pages`
+- `POST /public-login/pages`
+- `POST /public-login/pages/{id}/update`
+- `POST /public-login/pages/{id}/pause`
+- `POST /public-login/pages/{id}/resume`
+- `POST /public-login/pages/{id}/rotate`
+- `GET /p/{slug}`
+- `POST /p/{slug}/oauth/start`
+- `GET /p/{slug}/oauth/poll?session=SESSION`
+- `POST /p/{slug}/oauth/cancel`
+
+## v0.3.0 验收记录模板
+
+### 配置与版本
+
+- [ ] `docker compose -f docker-compose.v0.3.0.yml config`
+- [ ] `VERSION` 为 `v0.3.0`
+- [ ] Compose project/image/container/environment/label 均带 `v0.3.0`
+- [ ] 端口 `8788` 与 `accounts/`、`usage/` 卷兼容
+
+### 服务与回归
+
+- [ ] `docker compose -f docker-compose.v0.3.0.yml up -d --build --force-recreate`
+- [ ] `Invoke-WebRequest http://127.0.0.1:8788/health` 返回 200
+- [ ] `Invoke-WebRequest http://127.0.0.1:8788/` 可打开管理员面板
+- [ ] `/v1/models`、`/cli` 保持可用
+
+### 公开入口合约
+
+- [ ] 管理员列表/创建/更新/暂停/恢复/轮换接口鉴权正确
+- [ ] 重复 slug 返回 409，不存在页面返回 404
+- [ ] 暂停页面返回 410，恢复后返回 200
+- [ ] 并行 OAuth session/state 不串号
+- [ ] 页面绑定校验阻止跨入口轮询
+- [ ] 取消会话只释放当前 session，重复取消幂等
+- [ ] 登录成功只返回昵称/区域与 `pending_review`
+- [ ] 容器重建后页面注册表仍存在
+- [ ] Git 工作区无凭证、Token、密码落盘
 
 ## 运行与发布约束
 
-- 不把任何 WorkBuddy 凭证、GitHub 密码或 API Key 写入仓库。
-- 上游 remote 保持只读，不向上游推送。
-- 生产发布前需要核对目标服务、备份、健康检查和回滚路径。
+- 不把任何 WorkBuddy 凭证、GitHub 密码或 API Key 写入仓库；
+- 上游 remote 保持只读，不向上游推送；
+- 每个独立功能完成并通过验证后创建独立 feature commit；
+- 生产发布前核对目标服务、备份、健康检查和回滚路径。
+
+

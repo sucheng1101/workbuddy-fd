@@ -17,6 +17,7 @@ import argparse
 import bisect
 import hashlib
 import heapq
+from html import escape as html_escape
 import ipaddress
 from collections import deque
 import re
@@ -57,6 +58,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import secrets
 import wb_accounts
 import wb_activity
 import wb_atrest
@@ -5651,6 +5653,61 @@ CREDITS_REFRESHER = None
 # Release discovery only - the checker never downloads or installs anything.
 UPDATES = None
 ACCOUNTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'accounts')
+
+# Reusable public OAuth entry points.  The page registry is intentionally
+# small and file-backed so it survives restarts without introducing a new
+# database dependency.  OAuth state itself remains short-lived in memory and
+# is keyed by a per-visitor session id; upstream state values are never
+# accepted directly from a public caller.
+_PUBLIC_LOGIN_LOCK = threading.RLock()
+_PUBLIC_LOGIN_PAGES = {}
+_PUBLIC_OAUTH_SESSIONS = {}
+PUBLIC_LOGIN_TTL_SECONDS = 15 * 60
+
+def _public_login_pages_path():
+    return os.path.join(ACCOUNTS_DIR, "public_login_pages.json")
+
+def _load_public_login_pages():
+    global _PUBLIC_LOGIN_PAGES
+    try:
+        with open(_public_login_pages_path(), "r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+        pages = raw if isinstance(raw, dict) else {}
+    except Exception:
+        pages = {}
+    with _PUBLIC_LOGIN_LOCK:
+        _PUBLIC_LOGIN_PAGES = pages
+    return pages
+
+def _save_public_login_pages():
+    os.makedirs(ACCOUNTS_DIR, exist_ok=True)
+    path = _public_login_pages_path()
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(_PUBLIC_LOGIN_PAGES, fh, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+def _public_page_view(page):
+    return {
+        "id": page.get("id"), "slug": page.get("slug"),
+        "name": page.get("name") or page.get("slug"),
+        "realm": page.get("realm") or CURRENT_REALM,
+        "platform": page.get("platform") or "CLI",
+        "paused": bool(page.get("paused")),
+        "created_at": page.get("created_at"),
+        "updated_at": page.get("updated_at"),
+        "public_url": "/p/%s" % page.get("slug"),
+    }
+
+def _find_public_page(slug):
+    slug = str(slug or "").strip().lower()
+    with _PUBLIC_LOGIN_LOCK:
+        for page in _PUBLIC_LOGIN_PAGES.values():
+            if str(page.get("slug", "")).lower() == slug:
+                return page
+    return None
+
+_load_public_login_pages()
 def realm_state_file():
     """Path of the persisted realm switch.
 
@@ -15749,6 +15806,10 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
+        # Public, reusable OAuth entry points intentionally bypass the panel
+        # session.  Each visitor must present a per-visit session token.
+        if path.startswith("/p/"):
+            return self._get_public_login(path, query)
         # The standalone configurator, for clients on machines that do not run
         # the gateway. Served before the panel gate and deliberately without a
         # session: the machines that need it are exactly the ones that cannot
@@ -15826,6 +15887,157 @@ class Handler(BaseHTTPRequestHandler):
             # 看板启动时用这个廉价判定决定要不要显示入口：不 import
             # wb_agents、不做任何探测（issue #246）。
             return self._json(200, {"enabled": self._agents_client_allowed()})
+        if path == "/public-login/pages":
+            return self._get_public_login_pages()
+        return self._error(404, "not found", "invalid_request_error")
+
+    def _get_public_login_pages(self):
+        if not self._panel_ok():
+            return self._error(401, "panel password required", "invalid_request_error")
+        with _PUBLIC_LOGIN_LOCK:
+            pages = [_public_page_view(p) for p in _PUBLIC_LOGIN_PAGES.values()]
+        return self._json(200, {"pages": pages})
+
+    def _public_login_html(self, page):
+        title = html_escape(str(page.get("name") or page.get("slug") or "WorkBuddy 登录"), quote=True)
+        slug = str(page.get("slug"))
+        start_path_js = json.dumps("/p/%s/oauth/start" % slug, ensure_ascii=False)
+        poll_prefix_js = json.dumps("/p/%s/oauth/poll?session=" % slug, ensure_ascii=False)
+        body = ("<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\">"
+                "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                "<title>%s</title><style>body{font:16px system-ui;max-width:560px;margin:10vh auto;padding:24px}"
+                "button{padding:10px 18px;border:0;border-radius:8px;background:#2563eb;color:white}"
+                "#msg{margin-top:18px;white-space:pre-wrap}</style>"
+                "<h1>%s</h1><p>使用 WorkBuddy 账号登录并提交账号接入审核。</p>"
+                "<button id=\"go\">开始登录</button><div id=\"msg\"></div>"
+                "<script>(async()=>{const b=document.getElementById('go'),m=document.getElementById('msg');const startPath=%s,pollPrefix=%s;"
+                "b.onclick=async()=>{b.disabled=true;m.textContent='正在创建登录会话…';"
+                "let r=await fetch(startPath,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});"
+                "let d=await r.json();if(!r.ok){m.textContent=d.error||'启动失败';b.disabled=false;return;}"
+                "window.open(d.authUrl,'_blank','noopener');m.textContent='请在新窗口完成登录，本页将自动等待。';"
+                "let n=0;let t=setInterval(async()=>{if(++n>120){clearInterval(t);m.textContent='登录超时';return;}"
+                "let q=await fetch(pollPrefix+encodeURIComponent(d.session));let x=await q.json();"
+                "if(x.status==='ok'){clearInterval(t);m.textContent='登录成功，账号已提交审核：'+(x.account?.nickname||'账号');}"
+                "else if(x.status==='error'||x.status==='expired'){clearInterval(t);m.textContent=x.message||x.status;b.disabled=false;}},3000)};})();</script>"
+                "</html>" % (title, title, start_path_js, poll_prefix_js))
+        return body.encode("utf-8")
+
+    def _get_public_login(self, path, query):
+        parts = [p for p in path.split("/") if p]
+        if len(parts) < 2:
+            return self._error(404, "public login page not found", "invalid_request_error")
+        slug = parts[1]
+        page = _find_public_page(slug)
+        if not page:
+            return self._error(404, "public login page not found", "invalid_request_error")
+        if len(parts) == 2:
+            if page.get("paused"):
+                return self._error(410, "public login page is paused", "invalid_request_error")
+            body = self._public_login_html(page)
+            self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if len(parts) == 4 and parts[2] == "oauth" and parts[3] == "poll":
+            sid = (query.get("session") or [""])[0]
+            return self._public_login_poll(page, sid)
+        return self._error(404, "not found", "invalid_request_error")
+
+    def _cancel_public_login(self, page, session_id):
+        with _PUBLIC_LOGIN_LOCK:
+            sess = _PUBLIC_OAUTH_SESSIONS.pop(str(session_id), None)
+        if sess and POOL:
+            try:
+                POOL.cancel_login(sess.get("upstream_state"))
+            except Exception:
+                pass
+        return self._json(200, {"cancelled": bool(sess)})
+
+    def _public_login_poll(self, page, session_id):
+        with _PUBLIC_LOGIN_LOCK:
+            sess = _PUBLIC_OAUTH_SESSIONS.get(str(session_id))
+        if not sess or sess.get("page_id") != page.get("id"):
+            return self._json(404, {"status": "unknown", "message": "login session not found"})
+        if time.time() > sess.get("expires_at", 0):
+            with _PUBLIC_LOGIN_LOCK: _PUBLIC_OAUTH_SESSIONS.pop(str(session_id), None)
+            return self._json(410, {"status": "expired", "message": "login session expired"})
+        if POOL:
+            try:
+                result = POOL.poll_login(sess.get("upstream_state"), enabled=False,
+                                         review_status="pending_review")
+            except TypeError:
+                # Compatibility for lightweight pool adapters used by older
+                # integrations and contract tests.
+                result = POOL.poll_login(sess.get("upstream_state"))
+        else:
+            result = {"status": "error", "message": "account pool unavailable"}
+        if result.get("status") in ("ok", "error", "expired"):
+            with _PUBLIC_LOGIN_LOCK: _PUBLIC_OAUTH_SESSIONS.pop(str(session_id), None)
+        if result.get("status") == "ok":
+            account = result.get("account") or {}
+            result = {"status": "ok", "review_status": "pending_review", "account": {"nickname": account.get("nickname"), "realm": account.get("realm")}}
+        return self._json(200, result)
+
+    def _post_public_login_start(self, path):
+        parts = [p for p in path.split("/") if p]
+        if len(parts) != 4 or parts[0] != "p" or parts[2] != "oauth" or parts[3] != "start":
+            return self._error(404, "not found", "invalid_request_error")
+        page = _find_public_page(parts[1])
+        if not page:
+            return self._error(404, "public login page not found", "invalid_request_error")
+        if page.get("paused"):
+            return self._error(410, "public login page is paused", "invalid_request_error")
+        try:
+            started = POOL.start_login(realm=page.get("realm") or CURRENT_REALM,
+                                       platform=page.get("platform") or "CLI")
+        except Exception as exc:
+            return self._error(502, "could not start login: %s" % exc)
+        session_id = secrets.token_urlsafe(24)
+        verifier = secrets.token_urlsafe(32)
+        now = time.time()
+        with _PUBLIC_LOGIN_LOCK:
+            _PUBLIC_OAUTH_SESSIONS[session_id] = {
+                "session_id": session_id, "page_id": page.get("id"),
+                "upstream_state": started.get("state"),
+                "state": secrets.token_urlsafe(24), "code_verifier": verifier,
+                "created_at": now, "expires_at": now + PUBLIC_LOGIN_TTL_SECONDS,
+            }
+        return self._json(200, {"session": session_id, "state": _PUBLIC_OAUTH_SESSIONS[session_id]["state"],
+                                "authUrl": started.get("authUrl"), "expires_at": now + PUBLIC_LOGIN_TTL_SECONDS})
+
+    def _post_public_login_admin(self, path, payload):
+        parts = [p for p in path.split("/") if p]
+        if parts == ["public-login", "pages"]:
+            slug = re.sub(r"[^a-z0-9_-]", "-", str(payload.get("slug") or "").strip().lower())[:64].strip("-")
+            if not slug:
+                return self._error(400, "slug is required", "invalid_request_error")
+            with _PUBLIC_LOGIN_LOCK:
+                if any(str(p.get("slug", "")).lower() == slug for p in _PUBLIC_LOGIN_PAGES.values()):
+                    return self._error(409, "slug already exists", "invalid_request_error")
+                page_id = secrets.token_hex(12)
+                page = {"id": page_id, "slug": slug, "name": str(payload.get("name") or slug)[:120],
+                        "realm": payload.get("realm") if payload.get("realm") in ("intl", "cn") else CURRENT_REALM,
+                        "platform": str(payload.get("platform") or "CLI")[:32], "paused": False,
+                        "created_at": time.time(), "updated_at": time.time()}
+                _PUBLIC_LOGIN_PAGES[page_id] = page
+                _save_public_login_pages()
+            return self._json(201, _public_page_view(page))
+        if len(parts) >= 3 and parts[0:2] == ["public-login", "pages"]:
+            page_id = parts[2]
+            with _PUBLIC_LOGIN_LOCK:
+                page = _PUBLIC_LOGIN_PAGES.get(page_id)
+                if not page:
+                    return self._error(404, "public login page not found", "invalid_request_error")
+                action = parts[3] if len(parts) > 3 else "update"
+                if action in ("pause", "resume"):
+                    page["paused"] = action == "pause"
+                elif action == "rotate":
+                    page["slug"] = secrets.token_urlsafe(7).lower().replace("_", "-")
+                elif action == "update":
+                    if payload.get("name") is not None: page["name"] = str(payload.get("name"))[:120]
+                    if payload.get("realm") in ("intl", "cn"): page["realm"] = payload["realm"]
+                else:
+                    return self._error(404, "unknown public login action", "invalid_request_error")
+                page["updated_at"] = time.time(); _save_public_login_pages()
+                return self._json(200, _public_page_view(page))
         return self._error(404, "not found", "invalid_request_error")
     def _get_dashboard(self):
         return self._dashboard()
@@ -18264,6 +18476,30 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?")[0]
+        if path.startswith("/p/") and path.endswith("/oauth/start"):
+            # Consume the JSON body even though the public start endpoint has
+            # no options; HTTP/1.1 keep-alive otherwise leaves bytes queued
+            # for the next request on the same connection.
+            payload = self._payload_or_error()
+            if payload is None:
+                return
+            return self._post_public_login_start(path)
+        if path.startswith("/p/") and path.endswith("/oauth/cancel"):
+            parts = [p for p in path.split("/") if p]
+            page = _find_public_page(parts[1]) if len(parts) == 4 else None
+            if not page:
+                return self._error(404, "public login page not found", "invalid_request_error")
+            payload = self._payload_or_error()
+            if payload is None:
+                return
+            return self._cancel_public_login(page, payload.get("session") or "")
+        if path.startswith("/public-login/"):
+            if not self._panel_ok():
+                return self._error(401, "panel password required", "invalid_request_error")
+            payload = self._payload_or_error()
+            if payload is None:
+                return
+            return self._post_public_login_admin(path, payload)
         if path == "/settings/save":
             if not self._panel_ok():
                 return self._error(401, "panel password required", "invalid_request_error")
@@ -18726,6 +18962,10 @@ def _bootstrap_runtime(args):
     SYSTEM_PROMPT = args.system_prompt
     if args.accounts_dir:
         ACCOUNTS_DIR = os.path.abspath(args.accounts_dir)
+    # The module-level registry is initialized for the default path; reload it
+    # after CLI/Docker account-directory overrides so public pages follow the
+    # same persistent volume as the account pool.
+    _load_public_login_pages()
     # LAN mode must not ship a known key: the gateway spends the account's own
     # upstream quota, so a guessable default lets anyone on the network drain
     # it. Generate one on first use, persist it, and reuse it afterwards.

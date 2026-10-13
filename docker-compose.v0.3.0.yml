@@ -1,0 +1,29 @@
+﻿name: workbuddy-fd-v0-3-0
+services:
+  wb-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: workbuddy-fd:v0.3.0
+    container_name: workbuddy-fd-v0-3-0
+    restart: unless-stopped
+    user: "${PUID:-0}:${PGID:-0}"
+    ports:
+      - "8788:8788"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8788
+      TZ: Asia/Shanghai
+      WORKBUDDY_FD_VERSION: v0.3.0
+    volumes:
+      - ./accounts:/app/accounts
+      - ./usage:/app/usage
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT','8788'), timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    labels:
+      com.workbuddy-fd.project: workbuddy-fd
+      com.workbuddy-fd.version: v0.3.0

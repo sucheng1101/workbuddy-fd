@@ -501,6 +501,9 @@ class Account(object):
             self.enterprise_id = self.jwt_enterprise_id(token)
         self.added_at = data.get("addedAt") or time.time()
         self.source = str(data.get("source") or "oauth")
+        # Account onboarding state. Existing credential files default to
+        # approved so the v0.3.0 public-login workflow remains compatible.
+        self.review_status = str(data.get("reviewStatus") or "approved")
         self.proxy_slot = str(data.get("proxySlot") or "").strip()
         self.proxy_legacy = str(data.get("proxy") or "").strip()
         # Runtime-resolved value; recomputed by AccountPool.apply_proxy_slots().
@@ -656,6 +659,7 @@ class Account(object):
             "expiresAt": self.expires_at,
             "addedAt": self.added_at,
             "source": self.source,
+            "reviewStatus": self.review_status,
             "proxySlot": self.proxy_slot,
             "proxy": self.proxy_legacy,
             "enabled": self.enabled,
@@ -710,6 +714,7 @@ class Account(object):
             "weight": int(self.weight),
             "note": self.note,
             "source": self.source,
+            "reviewStatus": self.review_status,
             "proxySlot": self.proxy_slot,
             "proxy": self.proxy,
             "expiresAt": exp,
@@ -2569,6 +2574,7 @@ class AccountPool(object):
         if account is None: return None
         account.enabled = bool(enabled)
         if enabled:
+            account.review_status = "approved"
             account.clear_error()
         account.save(self.dir)
         self.apply_proxy_slots()
@@ -2816,6 +2822,7 @@ class AccountPool(object):
                 if realm and account.realm != realm: continue
                 account.enabled = bool(enabled)
                 if enabled:
+                    account.review_status = "approved"
                     account.clear_error()
                 account.save(self.dir)
         self.apply_proxy_slots()
@@ -3146,7 +3153,7 @@ class AccountPool(object):
             self.logins[state] = {"created": time.time(), "platform": platform, "realm": realm}
         return {"state": state, "authUrl": auth_url, "realm": realm, "platform": platform}
 
-    def poll_login(self, state):
+    def poll_login(self, state, enabled=True, review_status=None):
         state = str(state or "").strip()
         with self._lock:
             info = self.logins.get(state)
@@ -3201,10 +3208,11 @@ class AccountPool(object):
             "refreshToken": data.get("refreshToken") or "",
             "expiresAt": normalize_epoch(data.get("expiresAt")) or jwt_exp(token),
             "source": "oauth",
-            "enabled": True,
+            "enabled": bool(enabled),
+            "reviewStatus": review_status or ("approved" if enabled else "pending_review"),
         })
         self.add(account)
-        if realm == "cn":
+        if realm == "cn" and account.enabled:
             try: account.checkin(trigger="account_add")
             except Exception: pass
         with self._lock: self.logins.pop(state, None)
