@@ -403,6 +403,7 @@ USAGE_DIR = os.environ.get("WB_PROXY_USAGE_DIR") \
     or os.path.join(os.path.dirname(os.path.abspath(__file__)), "usage")
 USAGE_LOG = os.path.join(USAGE_DIR, "usage.jsonl")
 DASHBOARD_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
+CLI_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli.html")
 USAGE_FIELDS = ("prompt_tokens", "completion_tokens", "reasoning_tokens",
                 "cached_tokens", "total_tokens", "credit")
 # Web-panel access control. The panel is gated by its own password (default
@@ -15759,6 +15760,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(401, "panel password required", "invalid_request_error")
         if path in ("/", "/dashboard", "/ui"):
             return self._get_dashboard()
+        if path == "/cli":
+            return self._get_cli()
         if path == "/panel/status":
             return self._get_panel_status()
         if path == "/health":
@@ -15826,6 +15829,21 @@ class Handler(BaseHTTPRequestHandler):
         return self._error(404, "not found", "invalid_request_error")
     def _get_dashboard(self):
         return self._dashboard()
+
+    def _get_cli(self):
+        """Serve the versioned OpenCode + DeepSeek configuration page."""
+        try:
+            with open(CLI_HTML, "rb") as fh:
+                body = fh.read()
+        except OSError as exc:
+            return self._error(500, "cli.html unavailable: %s" % exc,
+                               "server_error")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _get_panel_status(self):
         # Answer without a token: the dashboard needs to know whether to
