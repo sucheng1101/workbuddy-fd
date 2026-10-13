@@ -2,12 +2,13 @@
 
 ## 当前状态
 
-- 状态：RELEASE_READY（v0.1.0 设计已落地，源码镜像构建与 Docker 验证通过）
+- 状态：DONE（v0.1.0 设计、源码镜像构建、Docker 验证与 GitHub 同步完成）
 - 项目：workbuddy-fd
 - 主分支：main
 - 基线提交：da737b1
 - 本地运行时：docker（workbuddy-fd-v0-1-0，8788，healthy；镜像 digest `sha256:7b74fb18607621be276037247db03f19ec25b3bd2155547a391e83896ae31f6b`）
 - 当前任务：v0.1.0 规格落地、版本化 Compose、本地 Docker 启动验证
+- 本地提交：`b446c4f`；GitHub API 同步提交：`471bebedc36bd4a6eef8da5f36e99a915f18ff4f`
 
 ## 已确认范围
 
@@ -39,7 +40,7 @@
 2. 已完成 v0.1.0 权限矩阵、目标数据模型和 OAuth 并发会话规格；
 3. 实现公开登录页、代理后台、管理员后台；
 4. Docker 本地验证已通过：`docker compose -f docker-compose.v0.1.0.yml config`、源码 `up -d --build --force-recreate`、`/health`、`/`；
-5. 创建独立功能提交并推送项目仓库。
+5. 已创建 `b446c4f` 并同步项目 GitHub `main`；Git Smart HTTP 受网络重置影响，采用 GitHub API 完成等价内容同步。
 
 ## 运行与发布约束
 
