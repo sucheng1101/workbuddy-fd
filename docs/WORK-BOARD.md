@@ -5,7 +5,7 @@
 - 状态：READY（基线已建立，等待功能实施确认）
 - 项目：workbuddy-fd
 - 主分支：main
-- 基线提交：4c6fab5
+- 基线提交：d7fcb53
 - 本地运行时：docker（尚未启动）
 - 当前任务：从 `workbuddy2api-hub` 建立项目 fork，保留 `workbuddy2api-panel` 只读参考
 
@@ -40,3 +40,4 @@
 - 不把任何 WorkBuddy 凭证、GitHub 密码或 API Key 写入仓库。
 - 上游 remote 保持只读，不向上游推送。
 - 生产发布前需要核对目标服务、备份、健康检查和回滚路径。
+
