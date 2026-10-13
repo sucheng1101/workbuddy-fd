@@ -8,7 +8,7 @@
 - 基线提交：da737b1
 - 本地运行时：docker（workbuddy-fd-v0-1-0，8788，healthy；镜像 digest `sha256:7b74fb18607621be276037247db03f19ec25b3bd2155547a391e83896ae31f6b`）
 - 当前任务：v0.1.0 规格落地、版本化 Compose、本地 Docker 启动验证
-- 本地提交：`b446c4f`；GitHub API 同步提交：`471bebedc36bd4a6eef8da5f36e99a915f18ff4f`
+- v0.1.0 功能提交：`b446c4f`；本地收尾提交：`82ff5b8`；GitHub API 同步链：`471bebedc36bd4a6eef8da5f36e99a915f18ff4f` → `c8c5bbb40be5dd5e324ed31566f617c73d6cf352`
 
 ## 已确认范围
 
