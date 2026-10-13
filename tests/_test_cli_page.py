@@ -26,4 +26,4 @@ check("cli page keeps panel login", "/panel/login" in page)
 check("Docker image copies the page", "COPY wb_*.py dashboard.html cli.html ./" in open(os.path.join(ROOT, "Dockerfile"), encoding="utf-8").read())
 check("versioned compose uses v0.2.0", os.path.isfile(os.path.join(ROOT, "docker-compose.v0.2.0.yml")))
 
-print("cli page assertions passed (10 checks)")
+print("cli page assertions passed (11 checks)")
