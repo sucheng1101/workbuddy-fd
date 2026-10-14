@@ -32,6 +32,8 @@ ENTRY_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
 
 # 有效账号 = 已审核通过、已启用、未过期；冻结是绑定层的额外闸门。
 STATUS_ACTIVE = "active"
+ENTRY_STATUS_ACTIVE = "active"
+ENTRY_STATUS_PAUSED = "paused"
 STATUS_PENDING = "pending_review"
 STATUS_REJECTED = "rejected"
 STATUS_PAUSED = "paused"
@@ -70,6 +72,21 @@ def account_status(review_status, enabled, expires_at, now=None):
     if expires and expires <= now:
         return STATUS_EXPIRED
     return STATUS_ACTIVE
+
+
+def task_eligible(account):
+    """账号是否可参与自动任务/签到/福利：已启用且审核通过。
+
+    公开登录成功后的「正常账号」会自动写 enabled=True、
+    review_status=approved，因此直接通过；被停用、待审核或已拒绝的账号
+    不参与任何自动任务，直到管理员显式处理。
+    """
+    if account is None:
+        return False
+    if not getattr(account, "enabled", False):
+        return False
+    review = str(getattr(account, "review_status", "approved") or "approved")
+    return review.strip().lower() == "approved"
 
 
 def normalize_period(period):
@@ -159,14 +176,18 @@ class Broker(object):
     # ---- 视图 ----
     @staticmethod
     def agent_view(agent):
+        public_slug = str(agent.get("public_slug") or "").strip()
+        paused = bool(agent.get("paused"))
         return {
             "id": agent.get("id"),
             "name": agent.get("name"),
             "entry": agent.get("entry"),
-            "paused": bool(agent.get("paused")),
+            "public_slug": public_slug or None,
+            "login_url": ("/p/%s" % public_slug) if public_slug else None,
+            "entry_status": ENTRY_STATUS_PAUSED if paused else ENTRY_STATUS_ACTIVE,
+            "paused": paused,
             "created_at": agent.get("created_at"),
             "updated_at": agent.get("updated_at"),
-            "login_url": "/agent/login/%s" % agent.get("entry"),
         }
 
     def list_agents(self):
@@ -174,6 +195,11 @@ class Broker(object):
             agents = [self.agent_view(a) for a in self._agents.values()]
         agents.sort(key=lambda a: (a.get("created_at") or 0))
         return agents
+
+    def agents(self):
+        """所有代理原始记录（副本），供调用方做惰性关联/迁移。"""
+        with self._lock:
+            return [dict(a) for a in self._agents.values()]
 
     def get_agent(self, agent_id):
         with self._lock:
@@ -216,6 +242,7 @@ class Broker(object):
                 "id": agent_id,
                 "name": name[:80],
                 "entry": entry_slug,
+                "public_slug": None,
                 "password_hash": _hash_password(password),
                 "paused": False,
                 "created_at": now,
@@ -255,6 +282,20 @@ class Broker(object):
         if generated:
             view["password"] = generated
         return view
+
+    def set_public_slug(self, agent_id, slug):
+        """把代理实体与其稳定公开登录页 slug 关联起来。
+
+        slug 只是公开入口地址的一部分：轮换它不改变代理 id/name/entry，因此
+        代理身份保持稳定，只有访客侧地址变化。
+        """
+        slug = str(slug or "").strip().lower()
+        with self._lock:
+            agent = self._require_agent(agent_id)
+            agent["public_slug"] = slug or None
+            agent["updated_at"] = self.clock()
+            self._save_agents()
+            return self.agent_view(agent)
 
     # ---- 代理会话 ----
     def _revoke_agent_sessions(self, agent_id):
@@ -366,6 +407,26 @@ class Broker(object):
         with self._lock:
             return sorted(uid for uid, b in self._bindings.items()
                           if b.get("agent_id") == agent_id)
+
+    def bound_bindings(self, agent_id):
+        """uid -> 绑定副本，仅限该代理名下，供聚合统计使用。"""
+        agent_id = str(agent_id)
+        with self._lock:
+            return {uid: dict(b) for uid, b in self._bindings.items()
+                    if b.get("agent_id") == agent_id}
+
+    def all_bindings(self):
+        """uid -> 绑定副本的全量快照，供管理员账号归属映射使用。"""
+        with self._lock:
+            return {uid: dict(b) for uid, b in self._bindings.items()}
+
+    def agent_for_uid(self, uid):
+        """账号当前归属的代理记录（无绑定时 None）。"""
+        with self._lock:
+            binding = self._binding_for(uid)
+            if not binding:
+                return None
+            return self._agents.get(str(binding.get("agent_id")))
 
     def is_frozen(self, agent_id, uid):
         with self._lock:

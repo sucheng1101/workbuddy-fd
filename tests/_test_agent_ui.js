@@ -99,6 +99,7 @@ const api = new Function(script + `
   window.__setAgents = function(data, models){ AGENTS_DATA = data; AGENT_MODELS = models; };
   return { applyAgent, restoreAgent, loadAgents, setAgents: window.__setAgents,
            loadAgentsAvailability, switchMainTab,
+           agentOwnerHtml, loadProxyAgents, MAIN_TABS,
            agentsAvailable: function(){ return AGENTS_AVAILABLE; },
            currentTab: function(){ return currentMainTab; } };`)();
 
@@ -234,6 +235,35 @@ const check = (label, cond, extra) => {
   api.switchMainTab('agents');
   check('a stale agents tab falls back to the gateway page',
         api.currentTab() === 'gateway', api.currentTab());
+
+  // ---- 代理管理页 / 账号代理归属列（v0.3.0 收口）----
+  check('主导航含「代理管理」按钮', html.indexOf('id="btnNavProxyAgents"') !== -1);
+  check('代理管理页容器存在', html.indexOf('id="pageProxyAgents"') !== -1);
+  check('MAIN_TABS 含 proxyagents', api.MAIN_TABS.indexOf('proxyagents') !== -1);
+  check('账号表含「代理归属」列', html.indexOf('data-label="代理归属"') !== -1
+        || html.indexOf('代理归属') !== -1);
+
+  window.ACCOUNT_AGENTS = {};
+  check('未绑定账号显示统一占位', /未绑定/.test(api.agentOwnerHtml({uid: 'nobody'})),
+        api.agentOwnerHtml({uid: 'nobody'}));
+  window.ACCOUNT_AGENTS = {u1: {id: 'a1', name: '代理A', entry: 'a', login_url: '/p/a'}};
+  const ownerHtml = api.agentOwnerHtml({uid: 'u1'});
+  check('已绑定账号显示代理归属名称', /代理A/.test(ownerHtml), ownerHtml);
+
+  global.fetch = (url, opts) => {
+    requests.push({url: String(url), opts: opts || {}});
+    const payload = {agents: []};
+    return Promise.resolve({
+      status: 200, ok: true,
+      json: () => Promise.resolve(payload),
+      text: () => Promise.resolve(JSON.stringify(payload)),
+    });
+  };
+  requests.length = 0;
+  await api.loadProxyAgents();
+  check('代理管理页请求 /broker/agents',
+        requests.some(r => r.url.indexOf('/broker/agents') !== -1),
+        JSON.stringify(requests.map(r => r.url)));
 
   process.stdout.write('agent config UI assertions passed (' + checks + ' checks)\n');
 })().catch(err => {

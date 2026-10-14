@@ -5718,6 +5718,7 @@ def _public_page_view(page):
         "realm": page.get("realm") or CURRENT_REALM,
         "platform": page.get("platform") or "CLI",
         "paused": bool(page.get("paused")),
+        "agent_id": page.get("agent_id") or None,
         "created_at": page.get("created_at"),
         "updated_at": page.get("updated_at"),
         "public_url": "/p/%s" % page.get("slug"),
@@ -5730,6 +5731,118 @@ def _find_public_page(slug):
             if str(page.get("slug", "")).lower() == slug:
                 return page
     return None
+
+def _find_public_page_by_agent(agent_id):
+    agent_id = str(agent_id or "")
+    with _PUBLIC_LOGIN_LOCK:
+        for page in _PUBLIC_LOGIN_PAGES.values():
+            if str(page.get("agent_id") or "") == agent_id:
+                return page
+    return None
+
+def _unique_public_slug(base):
+    base = re.sub(r"[^a-z0-9_-]", "-", str(base or "").strip().lower())[:64].strip("-")
+    if not base:
+        base = "agent-" + secrets.token_hex(3)
+    with _PUBLIC_LOGIN_LOCK:
+        taken = {str(p.get("slug", "")).lower() for p in _PUBLIC_LOGIN_PAGES.values()}
+    candidate = base
+    n = 2
+    while candidate in taken:
+        candidate = "%s-%d" % (base, n)
+        n += 1
+    return candidate
+
+def ensure_agent_public_page(agent, slug=None):
+    """为代理实体建立稳定公开登录页并回写 public_slug（幂等）。
+
+    同一地址多个访客各自开独立 session；rotate 只换 slug，代理身份稳定。
+    """
+    agent_id = str((agent or {}).get("id") or "")
+    if not agent_id:
+        return None
+    existing = _find_public_page_by_agent(agent_id)
+    if existing:
+        if not str((agent or {}).get("public_slug") or "").strip():
+            broker().set_public_slug(agent_id, existing.get("slug"))
+        return existing
+    with _PUBLIC_LOGIN_LOCK:
+        page_id = secrets.token_hex(12)
+        now = time.time()
+        page = {
+            "id": page_id,
+            "slug": _unique_public_slug(slug or agent.get("entry") or agent.get("name")),
+            "name": str(agent.get("name") or agent.get("entry") or "代理登录")[:120],
+            "realm": CURRENT_REALM,
+            "platform": "CLI",
+            "agent_id": agent_id,
+            "paused": False,
+            "created_at": now,
+            "updated_at": now,
+        }
+        _PUBLIC_LOGIN_PAGES[page_id] = page
+        _save_public_login_pages()
+    broker().set_public_slug(agent_id, page.get("slug"))
+    return page
+
+def rotate_agent_public_slug(agent_id):
+    """轮换代理公开登录页 slug；代理实体 id/entry/paused 不变。"""
+    page = _find_public_page_by_agent(agent_id)
+    if not page:
+        return None
+    with _PUBLIC_LOGIN_LOCK:
+        page["slug"] = _unique_public_slug("agent-" + secrets.token_hex(3))
+        page["updated_at"] = time.time()
+        _save_public_login_pages()
+        slug = page.get("slug")
+    broker().set_public_slug(agent_id, slug)
+    return page
+
+def _shanghai_date(ts):
+    """把一个 Unix 时间戳折成 Asia/Shanghai 的本地日界 (Y, M, D)。
+
+    固定 +08:00，不依赖宿主机时区：容器、开发版和测试在任何 TZ 下算出的
+    「今天 / 前天」都一致。
+    """
+    st = time.gmtime(float(ts or 0) + 8 * 3600)
+    return (st.tm_year, st.tm_mon, st.tm_mday)
+
+def public_login_agent_stats(agent_id, now=None):
+    """代理视角只读统计：总数 / 今天新增 / 前天新增 + 入口状态 + 登录 URL。
+
+    只聚合绑定条数与时间，不返回任何逐账号 UID/凭证/额度/用量/金额。
+    """
+    now = time.time() if now is None else float(now)
+    agent = broker().get_agent(agent_id) or {}
+    bindings = broker().bound_bindings(agent_id)
+    today = _shanghai_date(now)
+    target_prev = _shanghai_date(now - 2 * 86400)
+    new_today = 0
+    new_prev = 0
+    for binding in bindings.values():
+        try:
+            bound_at = float(binding.get("bound_at") or 0)
+        except (TypeError, ValueError):
+            bound_at = 0.0
+        if not bound_at:
+            continue
+        day = _shanghai_date(bound_at)
+        if day == today:
+            new_today += 1
+        elif day == target_prev:
+            new_prev += 1
+    slug = str(agent.get("public_slug") or "").strip()
+    paused = bool(agent.get("paused"))
+    return {
+        "agent_id": agent.get("id"),
+        "agent_name": agent.get("name"),
+        "total_accounts": len(bindings),
+        "new_today": new_today,
+        "new_before_yesterday": new_prev,
+        "entry_status": (wb_broker.ENTRY_STATUS_PAUSED if paused
+                         else wb_broker.ENTRY_STATUS_ACTIVE),
+        "login_url": ("/p/%s" % slug) if slug else None,
+    }
 
 _load_public_login_pages()
 
@@ -5854,6 +5967,27 @@ def account_views(realm=None):
     if not POOL:
         return []
     return POOL.list_public(realm=realm)
+
+def account_agent_map():
+    """uid -> {id, name, entry, login_url} 的代理归属映射。
+
+    单独挂在 /accounts 响应里，核心 Account.public DTO 保持解耦：账号本身
+    不携带代理字段，面板按 uid 合并展示，未绑定的 uid 不出现在映射中。
+    """
+    b = broker()
+    agents = {str(a.get("id")): a for a in b.list_agents()}
+    mapping = {}
+    for uid, binding in b.all_bindings().items():
+        agent = agents.get(str(binding.get("agent_id")))
+        if not agent:
+            continue
+        mapping[str(uid)] = {
+            "id": agent.get("id"),
+            "name": agent.get("name"),
+            "entry": agent.get("entry"),
+            "login_url": agent.get("login_url"),
+        }
+    return mapping
 
 # --------------------------------------------------------- 积分获取历史（发放记录）
 # 上游对每个账号返回一份积分包清单（免费套餐、每日活跃奖励的 Bonus Pack、活动包…），
@@ -15907,7 +16041,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._get_agents_cli()
         # 代理专属后台接口走独立 session（X-Agent-Token），与面板密码会话互不
         # 干扰，因此必须放在面板闸门之前。
-        if path in ("/agent/session", "/agent/accounts", "/agent/settlements"):
+        if path in ("/agent/session", "/agent/accounts", "/agent/stats",
+                    "/agent/settlements"):
             return self._agent_get(path)
         if self._is_panel_route(path) and not self._panel_ok():
             return self._error(401, "panel password required", "invalid_request_error")
@@ -16016,7 +16151,7 @@ class Handler(BaseHTTPRequestHandler):
                 "let d=await r.json();if(!r.ok){m.textContent=d.error||'启动失败';b.disabled=false;return;}"
                 "window.open(d.authUrl,'_blank','noopener');m.textContent='请在新窗口完成登录，本页将自动等待。';"
                 "let n=0;let t=setInterval(async()=>{if(++n>120){clearInterval(t);m.textContent='登录超时';return;}"
-                "let q=await fetch(pollPrefix+encodeURIComponent(d.session));let x=await q.json();"
+                "let q=await fetch(pollPrefix+encodeURIComponent(d.session)+'&state='+encodeURIComponent(d.state));let x=await q.json();"
                 "if(x.status==='ok'){clearInterval(t);m.textContent='登录成功，账号已提交审核：'+(x.account?.nickname||'账号');}"
                 "else if(x.status==='error'||x.status==='expired'){clearInterval(t);m.textContent=x.message||x.status;b.disabled=false;}},3000)};})();</script>"
                 "</html>" % (title, title, start_path_js, poll_prefix_js))
@@ -16038,7 +16173,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
         if len(parts) == 4 and parts[2] == "oauth" and parts[3] == "poll":
             sid = (query.get("session") or [""])[0]
-            return self._public_login_poll(page, sid)
+            state = (query.get("state") or [""])[0]
+            return self._public_login_poll(page, sid, state)
         return self._error(404, "not found", "invalid_request_error")
 
     def _cancel_public_login(self, page, session_id):
@@ -16051,18 +16187,29 @@ class Handler(BaseHTTPRequestHandler):
                 pass
         return self._json(200, {"cancelled": bool(sess)})
 
-    def _public_login_poll(self, page, session_id):
+    def _public_login_poll(self, page, session_id, state=""):
         with _PUBLIC_LOGIN_LOCK:
             sess = _PUBLIC_OAUTH_SESSIONS.get(str(session_id))
         if not sess or sess.get("page_id") != page.get("id"):
             return self._json(404, {"status": "unknown", "message": "login session not found"})
+        # state 参与校验：公开 start 会为每次访问生成独立 state，访客轮询若带上
+        # state，必须与本次会话绑定的一致，防止一个会话的 state 被跨页面/跨访客
+        # 复用。PKCE code_verifier 同样按会话隔离保存（仅服务端可见），上游当前是
+        # 轮询模式不消费 challenge，因此这里以「state + 会话归属 + 独立 verifier」
+        # 作为等价安全边界，见 docs/SPEC-v0.3.0.md。
+        # 新客户端会回传 state 做额外绑定校验；旧客户端仅带 session 时
+        # 保持兼容，因为 session 本身已与页面和服务端 PKCE 会话绑定。
+        if state and state != sess.get("state"):
+            return self._json(400, {"status": "invalid", "message": "state mismatch"})
         if time.time() > sess.get("expires_at", 0):
             with _PUBLIC_LOGIN_LOCK: _PUBLIC_OAUTH_SESSIONS.pop(str(session_id), None)
             return self._json(410, {"status": "expired", "message": "login session expired"})
         if POOL:
             try:
-                result = POOL.poll_login(sess.get("upstream_state"), enabled=False,
-                                         review_status="pending_review")
+                # 公开登录成功即为「正常账号」：直接启用并通过审核入池，随后自动
+                # 归属到页面绑定的代理。上游异常/待审核不会走到这里。
+                result = POOL.poll_login(sess.get("upstream_state"), enabled=True,
+                                         review_status="approved")
             except TypeError:
                 # Compatibility for lightweight pool adapters used by older
                 # integrations and contract tests.
@@ -16073,7 +16220,24 @@ class Handler(BaseHTTPRequestHandler):
             with _PUBLIC_LOGIN_LOCK: _PUBLIC_OAUTH_SESSIONS.pop(str(session_id), None)
         if result.get("status") == "ok":
             account = result.get("account") or {}
-            result = {"status": "ok", "review_status": "pending_review", "account": {"nickname": account.get("nickname"), "realm": account.get("realm")}}
+            uid = account.get("uid")
+            agent_id = str(page.get("agent_id") or "").strip()
+            # 内部 UID 只用于服务端自动绑定，绝不回给访客。bind 幂等：重复轮询/
+            # 重复登录只会命中同一条绑定，不会产生重复归属。
+            if uid and agent_id:
+                try:
+                    broker().bind(agent_id, uid)
+                except wb_broker.BrokerError:
+                    # 登录已进入账号池，但归属绑定失败时不把访客误报为
+                    # 已完成；响应不暴露 UID 或内部异常细节，管理员可从
+                    # 账号列表补处理该条记录。
+                    return self._json(409, {
+                        "status": "error",
+                        "message": "account could not be attached to agent",
+                    })
+            result = {"status": "ok", "review_status": "approved",
+                      "account": {"nickname": account.get("nickname"),
+                                  "realm": account.get("realm")}}
         return self._json(200, result)
 
     def _post_public_login_start(self, path):
@@ -16116,6 +16280,7 @@ class Handler(BaseHTTPRequestHandler):
                 page = {"id": page_id, "slug": slug, "name": str(payload.get("name") or slug)[:120],
                         "realm": payload.get("realm") if payload.get("realm") in ("intl", "cn") else CURRENT_REALM,
                         "platform": str(payload.get("platform") or "CLI")[:32], "paused": False,
+                        "agent_id": str(payload.get("agent_id") or "").strip() or None,
                         "created_at": time.time(), "updated_at": time.time()}
                 _PUBLIC_LOGIN_PAGES[page_id] = page
                 _save_public_login_pages()
@@ -16168,19 +16333,11 @@ class Handler(BaseHTTPRequestHandler):
         agent_id = agent.get("id")
         if path == "/agent/session":
             return self._json(200, {"agent": wb_broker.Broker.agent_view(agent)})
-        if path == "/agent/accounts":
-            b = broker()
-            accounts = []
-            for uid in b.bound_uids(agent_id):
-                dto = broker_account_dto(
-                    POOL.get(uid) if POOL else None,
-                    frozen=b.is_frozen(agent_id, uid))
-                if dto is not None:
-                    accounts.append(dto)
-            return self._json(200, {
-                "accounts": accounts,
-                "effective_account_count": len(broker_effective_uids(agent_id)),
-            })
+        if path in ("/agent/accounts", "/agent/stats"):
+            # 代理侧只读统计：只有总数/今天新增/前天新增/入口状态/稳定登录 URL。
+            # 不返回逐账号 UID、凭证、额度、用量、金额，也不提供绑定/解绑/
+            # 冻结/恢复等管理操作——那些是管理员域（/broker/*）。
+            return self._json(200, public_login_agent_stats(agent_id))
         if path == "/agent/settlements":
             return self._json(
                 200, {"settlements": broker().settlements_for_agent(agent_id)})
@@ -16218,7 +16375,12 @@ class Handler(BaseHTTPRequestHandler):
         return self._json(200, {"logged_out": True})
 
     def _broker_admin_list_agents(self):
-        return self._json(200, {"agents": broker().list_agents()})
+        agents = broker().list_agents()
+        # 管理员代理页需要聚合统计（总数/今天新增/前天新增），逐条并入视图；
+        # 统计只含条数与入口信息，不含逐账号 UID/凭证/额度/用量/金额。
+        for agent in agents:
+            agent.update(public_login_agent_stats(agent.get("id")))
+        return self._json(200, {"agents": agents})
 
     def _broker_admin_pending(self):
         rows = []
@@ -16263,6 +16425,12 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["broker", "agents"]:
                 view = b.create_agent(payload.get("name"), payload.get("password"),
                                       payload.get("entry"))
+                # 代理实体和公开登录页建立明确关联：创建代理即生成真实可 GET
+                # 的 /p/{slug}，并把 slug 回写到代理实体，供统计与登录 URL 使用。
+                page = ensure_agent_public_page(b.get_agent(view["id"]),
+                                                slug=payload.get("public_slug"))
+                if page:
+                    view = b.agent_view(b.get_agent(view["id"]))
                 return self._json(201, view)
             if parts == ["broker", "settlements"]:
                 period = payload.get("period") or time.strftime("%Y-%m")
@@ -16279,7 +16447,11 @@ class Handler(BaseHTTPRequestHandler):
                 if action in ("pause", "resume"):
                     return self._json(200, b.set_paused(agent_id, action == "pause"))
                 if action == "rotate":
-                    return self._json(200, b.rotate_entry(agent_id, payload.get("password")))
+                    # 轮换只更换公开页 slug；代理内部 entry、凭证和身份保持不变。
+                    # 旧数据若尚未建页，先补建再轮换，确保返回的 URL 可直接访问。
+                    ensure_agent_public_page(b.get_agent(agent_id))
+                    rotate_agent_public_slug(agent_id)
+                    return self._json(200, b.agent_view(b.get_agent(agent_id)))
                 if action in ("bind", "unbind", "freeze", "restore"):
                     uid = payload.get("uid") or payload.get("account_uid")
                     if action == "bind":
@@ -16485,6 +16657,7 @@ class Handler(BaseHTTPRequestHandler):
         apply_daily_guards()
         return self._json(200, {
             "accounts": account_views(realm=query.get('realm', [None])[0] or CURRENT_REALM),
+            "proxy_agents": account_agent_map(),
             "storage": ACCOUNTS_DIR,
             "usable": POOL.count_ready() if POOL else 0,
         })
@@ -17799,11 +17972,12 @@ class Handler(BaseHTTPRequestHandler):
         uid = payload.get("uid")
         if uid and uid != "all":
             target = POOL.get(uid)
-            if not target or target.realm != "cn":
+            if not target or target.realm != "cn" or not wb_broker.task_eligible(target):
                 return self._json(200, {"ok": False, "msg": "未找到指定的国内版账号"})
             targets = [target]
         else:
-            targets = [a for a in POOL.accounts if a.realm == "cn" and a.enabled]
+            targets = [a for a in POOL.accounts
+                       if a.realm == "cn" and wb_broker.task_eligible(a)]
         if not targets:
             return self._json(200, {"ok": False, "msg": "未找到已启用的国内版账号"})
         from wb_tasks import run_growth_tasks
@@ -17838,11 +18012,12 @@ class Handler(BaseHTTPRequestHandler):
         uid = payload.get("uid")
         if uid and uid != "all":
             target = POOL.get(uid)
-            if not target or target.realm != "cn":
+            if not target or target.realm != "cn" or not wb_broker.task_eligible(target):
                 return self._json(200, {"ok": False, "msg": "未找到指定的国内版账号"})
             targets = [target]
         else:
-            targets = [a for a in POOL.accounts if a.realm == "cn" and a.enabled]
+            targets = [a for a in POOL.accounts
+                       if a.realm == "cn" and wb_broker.task_eligible(a)]
         if not targets:
             return self._json(200, {"ok": False, "msg": "未找到已启用的国内版账号"})
         from wb_tasks import run_streak_bonus
@@ -17864,11 +18039,12 @@ class Handler(BaseHTTPRequestHandler):
         uid = payload.get("uid")
         if uid and uid != "all":
             target = POOL.get(uid)
-            if not target or target.realm != "cn":
+            if not target or target.realm != "cn" or not wb_broker.task_eligible(target):
                 return self._json(200, {"ok": False, "msg": "未找到指定的国内版账号"})
             targets = [target]
         else:
-            targets = [a for a in POOL.accounts if a.realm == "cn" and a.enabled]
+            targets = [a for a in POOL.accounts
+                       if a.realm == "cn" and wb_broker.task_eligible(a)]
         if not targets:
             return self._json(200, {"ok": False, "msg": "未找到已启用的国内版账号"})
         from wb_tasks import do_cat_travel
@@ -17996,7 +18172,7 @@ class Handler(BaseHTTPRequestHandler):
     def _route_accounts_checkin(self, payload):
         uid = payload.get("uid")
         invalidate_tasks_cache()          # 签到会改连续打卡状态，成长任务快照随之作废
-        targets = [POOL.get(uid)] if uid else [a for a in (POOL.accounts if POOL else []) if a.realm == "cn"]
+        targets = [POOL.get(uid)] if uid else [a for a in (POOL.accounts if POOL else []) if a.realm == "cn" and wb_broker.task_eligible(a)]
         results = []
         for account in targets:
             if account is None:
@@ -18013,7 +18189,7 @@ class Handler(BaseHTTPRequestHandler):
         if uid:
             targets = [POOL.get(uid)]
         else:
-            targets = [a for a in POOL.accounts if a.realm == "intl" and a.enabled]
+            targets = [a for a in POOL.accounts if a.realm == "intl" and wb_broker.task_eligible(a)]
         results = []
         for account in targets:
             if account is None:
@@ -18037,7 +18213,7 @@ class Handler(BaseHTTPRequestHandler):
         if uid:
             targets = [POOL.get(uid)]
         else:
-            targets = [a for a in POOL.accounts if a.realm == "intl" and a.enabled]
+            targets = [a for a in POOL.accounts if a.realm == "intl" and wb_broker.task_eligible(a)]
         results = []
         for account in targets:
             if account is None:

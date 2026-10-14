@@ -218,6 +218,24 @@ class PublicLoginContractTests(unittest.TestCase):
                              page["id"])
             self.assertEqual(proxy._PUBLIC_OAUTH_SESSIONS[first["session"]]["code_verifier"].__class__, str)
 
+    def test_public_poll_state_mismatch_is_rejected(self):
+        with self.patched_runtime():
+            self.create_page("statepage")
+            _, first, _ = self.dispatch(
+                "/p/statepage/oauth/start", command="POST", payload={})
+            _, second, _ = self.dispatch(
+                "/p/statepage/oauth/start", command="POST", payload={})
+            status, body, _ = self.dispatch(
+                "/p/statepage/oauth/poll?session=%s&state=%s"
+                % (first["session"], second["state"]))
+            self.assertEqual(status, 400)
+            self.assertEqual(body["status"], "invalid")
+            # 正确的 state 参与校验并通过。
+            status, _body, _ = self.dispatch(
+                "/p/statepage/oauth/poll?session=%s&state=%s"
+                % (first["session"], first["state"]))
+            self.assertEqual(status, 200)
+
     def test_public_page_escapes_admin_supplied_name(self):
         with self.patched_runtime():
             page = self.create_page("escaped", name='</title><script>alert("x")</script>')
@@ -246,9 +264,9 @@ class PublicLoginContractTests(unittest.TestCase):
             status, one, _ = self.dispatch(
                 "/p/poll/oauth/poll?session=" + first["session"])
             self.assertEqual(status, 200)
-            self.assertEqual(one["review_status"], "pending_review")
+            self.assertEqual(one["review_status"], "approved")
             self.assertEqual(one["account"], {"nickname": "Alice", "realm": "intl"})
-            self.assertEqual(self.pool.poll_options[-1][1:], (False, "pending_review"))
+            self.assertEqual(self.pool.poll_options[-1][1:], (True, "approved"))
             self.assertNotIn("uid", json.dumps(one))
             self.assertNotIn(first["session"], proxy._PUBLIC_OAUTH_SESSIONS)
 
@@ -288,6 +306,22 @@ class PublicLoginContractTests(unittest.TestCase):
                                             command="POST", payload={})
             self.assertEqual(status, 410)
             self.assertIn("paused", body["error"]["message"])
+
+    def test_cross_page_poll_is_rejected(self):
+        with self.patched_runtime():
+            self.create_page("page-a")
+            self.create_page("page-b")
+            _, started, _ = self.dispatch(
+                "/p/page-a/oauth/start", command="POST", payload={})
+            # 用 page-a 的 session 到 page-b 轮询：页面归属不符，拒绝。
+            status, body, _ = self.dispatch(
+                "/p/page-b/oauth/poll?session=" + started["session"])
+            self.assertEqual(status, 404)
+            self.assertEqual(body["status"], "unknown")
+            # 回到 page-a 仍然有效。
+            status, _body, _ = self.dispatch(
+                "/p/page-a/oauth/poll?session=" + started["session"])
+            self.assertEqual(status, 200)
 
     def test_cancel_releases_only_the_selected_public_session(self):
         with self.patched_runtime():
@@ -453,8 +487,8 @@ class BrokerContractTests(unittest.TestCase):
         self.assertEqual((status, body["paused"]), (200, False))
         self.agent_login("acme", "secret-1")
 
-    # ---- 白名单 DTO 脱敏 ----
-    def test_agent_account_dto_exposes_only_whitelisted_fields(self):
+    # ---- 代理侧只读统计：严格白名单，无逐账号字段 ----
+    def test_agent_stats_expose_only_aggregate_fields(self):
         self.add_account("uid-alice", nickname="Alice")
         agent = self.create_agent("Redact")
         self.bind(agent["id"], "uid-alice")
@@ -463,19 +497,150 @@ class BrokerContractTests(unittest.TestCase):
         status, body, raw = self.dispatch("/agent/accounts",
                                           headers=self.agent_headers(token))
         self.assertEqual(status, 200, body)
-        self.assertEqual(len(body["accounts"]), 1)
-        self.assertEqual(body["effective_account_count"], 1)
-        dto = body["accounts"][0]
-        self.assertEqual(set(dto.keys()), {"nickname", "status", "login_at"})
-        self.assertEqual(dto["nickname"], "Alice")
-        self.assertEqual(dto["status"], "active")
-        self.assertTrue(dto["login_at"])
+        self.assertEqual(set(body.keys()), {
+            "agent_id", "agent_name", "total_accounts", "new_today",
+            "new_before_yesterday", "entry_status", "login_url"})
+        self.assertEqual(body["total_accounts"], 1)
+        self.assertEqual(body["agent_id"], agent["id"])
+        self.assertEqual(body["entry_status"], "active")
+        self.assertTrue(body["login_url"].startswith("/p/"))
 
         lowered = raw.lower()
         for forbidden in ("uid", "token", "credential", "quota", "usage",
-                          "amount", "access", "refresh", "secret-uid"):
-            self.assertNotIn(forbidden, lowered, "白名单 DTO 泄漏字段: %s" % forbidden)
+                          "amount", "access", "refresh", "secret-uid", "nickname"):
+            self.assertNotIn(forbidden, lowered, "代理统计泄漏字段: %s" % forbidden)
         self.assertNotIn("uid-alice", raw)
+
+        # /agent/stats 是同一份只读统计。
+        status, stats, _ = self.dispatch("/agent/stats",
+                                         headers=self.agent_headers(token))
+        self.assertEqual(status, 200)
+        self.assertEqual(stats, body)
+
+    def test_agent_stats_use_shanghai_day_boundaries(self):
+        import calendar
+        agent = self.create_agent("Stats")
+        for uid in ("u-today", "u-yesterday", "u-prev"):
+            self.add_account(uid, nickname=uid)
+            self.bind(agent["id"], uid)
+        b = proxy.broker()
+        now = calendar.timegm((2026, 10, 14, 4, 0, 0))  # 2026-10-14 12:00 +08
+        with b._lock:
+            b._bindings["u-today"]["bound_at"] = now
+            b._bindings["u-yesterday"]["bound_at"] = now - 86400
+            b._bindings["u-prev"]["bound_at"] = now - 2 * 86400
+        stats = proxy.public_login_agent_stats(agent["id"], now=now)
+        self.assertEqual(stats["total_accounts"], 3)
+        self.assertEqual(stats["new_today"], 1)
+        self.assertEqual(stats["new_before_yesterday"], 1)
+
+    def test_agent_public_page_link_and_rotate(self):
+        agent = self.create_agent("Link")
+        self.assertIsNotNone(agent["login_url"])
+        self.assertTrue(agent["login_url"].startswith("/p/"))
+        status, _body, raw = self.dispatch(agent["login_url"])
+        self.assertEqual(status, 200)
+        self.assertIn("开始登录", raw)
+        old_slug = agent["login_url"].rsplit("/", 1)[-1]
+        old_entry = agent["entry"]
+
+        status, rotated, _ = self.dispatch(
+            "/broker/agents/%s/rotate" % agent["id"], command="POST",
+            payload={}, headers=self.panel_headers())
+        self.assertEqual(status, 200)
+        self.assertEqual(rotated["id"], agent["id"])
+        self.assertEqual(rotated["name"], agent["name"])
+        self.assertEqual(rotated["entry"], old_entry)
+        new_slug = rotated["login_url"].rsplit("/", 1)[-1]
+        self.assertNotEqual(new_slug, old_slug)
+        self.assertEqual(self.dispatch("/p/" + old_slug)[0], 404)
+        self.assertEqual(self.dispatch("/p/" + new_slug)[0], 200)
+
+    # ---- 公开登录成功：自动启用/审核/归属入池，bind 幂等 ----
+    def test_public_login_auto_binds_enables_and_pools_account(self):
+        agent = self.create_agent("Auto")
+        status, listing, _ = self.dispatch("/public-login/pages",
+                                           headers=self.panel_headers())
+        self.assertEqual(status, 200)
+        page = next(p for p in listing["pages"] if p.get("agent_id") == agent["id"])
+        self.assertTrue(page["public_url"].startswith("/p/"))
+
+        calls = []
+
+        def fake_start(realm, platform):
+            return {"state": "upstream-auto",
+                    "authUrl": "https://login.test/auto"}
+
+        def fake_poll(state, enabled=True, review_status=None):
+            calls.append((state, enabled, review_status))
+            self.pool.add(wb_accounts.Account({
+                "uid": "uid-public-1", "nickname": "Public", "accessToken": "t",
+                "realm": "intl", "enabled": enabled,
+                "reviewStatus": review_status or "approved",
+                "expiresAt": int(time.time()) + 3600}))
+            return {"status": "ok", "account": {"uid": "uid-public-1",
+                                                "nickname": "Public",
+                                                "realm": "intl"}}
+
+        self.pool.start_login = fake_start
+        self.pool.poll_login = fake_poll
+        status, started, _ = self.dispatch(
+            "/p/%s/oauth/start" % page["slug"], command="POST", payload={})
+        self.assertEqual(status, 200, started)
+        status, done, raw = self.dispatch(
+            "/p/%s/oauth/poll?session=%s" % (page["slug"], started["session"]))
+        self.assertEqual(status, 200, done)
+        self.assertEqual(done["review_status"], "approved")
+        self.assertEqual(done["account"], {"nickname": "Public", "realm": "intl"})
+        self.assertNotIn("uid-public-1", raw)
+        self.assertNotIn("uid", json.dumps(done))
+        self.assertEqual(calls[0][1:], (True, "approved"))
+
+        account = self.pool.get("uid-public-1")
+        self.assertTrue(account.enabled)
+        self.assertEqual(account.review_status, "approved")
+        token = self.agent_login(agent["entry"], "pw12345")
+        status, stats, _ = self.dispatch("/agent/accounts",
+                                         headers=self.agent_headers(token))
+        self.assertEqual(stats["total_accounts"], 1)
+
+        # 重复登录 + 重复轮询命中幂等 bind，不产生第二条归属。
+        status, again, _ = self.dispatch(
+            "/p/%s/oauth/start" % page["slug"], command="POST", payload={})
+        self.dispatch(
+            "/p/%s/oauth/poll?session=%s" % (page["slug"], again["session"]))
+        self.assertEqual(len(proxy.broker().bound_uids(agent["id"])), 1)
+        status, stats2, _ = self.dispatch("/agent/accounts",
+                                          headers=self.agent_headers(token))
+        self.assertEqual(stats2["total_accounts"], 1)
+
+    # ---- 调度/福利闸门 ----
+    def test_task_eligible_requires_enabled_and_approved(self):
+        class A(object):
+            def __init__(self, enabled, review):
+                self.enabled = enabled
+                self.review_status = review
+
+        self.assertTrue(wb_broker.task_eligible(A(True, "approved")))
+        self.assertTrue(wb_broker.task_eligible(A(True, "")))
+        self.assertFalse(wb_broker.task_eligible(A(True, "pending_review")))
+        self.assertFalse(wb_broker.task_eligible(A(False, "approved")))
+        self.assertFalse(wb_broker.task_eligible(None))
+
+    # ---- 管理员账号归属映射：核心 DTO 保持解耦 ----
+    def test_account_agent_map_merges_binding_without_touching_dto(self):
+        self.add_account("uid-map", nickname="Map")
+        agent = self.create_agent("MapAgent")
+        self.bind(agent["id"], "uid-map")
+        mapping = proxy.account_agent_map()
+        self.assertEqual(mapping["uid-map"]["id"], agent["id"])
+        self.assertEqual(mapping["uid-map"]["name"], agent["name"])
+        self.assertEqual(mapping["uid-map"]["entry"], agent["entry"])
+        self.assertTrue(mapping["uid-map"]["login_url"].startswith("/p/"))
+        dto = self.pool.get("uid-map").public()
+        self.assertNotIn("agent", dto)
+        self.assertNotIn("proxy_agent", dto)
+        self.assertNotIn("agent_id", dto)
 
     # ---- 跨代理越权 / 无删除路由 ----
     def test_cross_agent_operations_are_denied(self):
@@ -716,6 +881,59 @@ class BrokerContractTests(unittest.TestCase):
         # 匿名访问被拒。
         status, _body, _ = self.dispatch("/broker/agents/pending")
         self.assertEqual(status, 401)
+
+
+class SchedulerGateTests(unittest.TestCase):
+    """调度器只把「已启用 + 审核通过」的账号纳入自动任务。"""
+
+    def test_scheduler_skips_ineligible_accounts(self):
+        import wb_scheduler
+
+        calls = []
+
+        class FakeAcc(object):
+            uid = "uid-skip"
+            nickname = "Skip"
+            realm = "cn"
+            enabled = False
+            review_status = "approved"
+
+            def can_checkin(self):
+                calls.append("can_checkin")
+                return True
+
+            def checkin(self, *a, **k):
+                calls.append("checkin")
+                return {"ok": True}
+
+        class FakePool(object):
+            accounts = [FakeAcc()]
+
+        scheduler = wb_scheduler.Scheduler(FakePool())
+        scheduler._run_cycle("test")
+        self.assertEqual(calls, [])
+
+    def test_scheduler_runs_eligible_accounts(self):
+        import wb_scheduler
+
+        class FakeAcc(object):
+            uid = "uid-run"
+            nickname = "Run"
+            realm = "intl"
+            enabled = True
+            review_status = "approved"
+            expires_at = 0
+
+            def can_daily_chat(self):
+                return False
+
+        class FakePool(object):
+            accounts = [FakeAcc()]
+
+        scheduler = wb_scheduler.Scheduler(FakePool())
+        scheduler._run_cycle("test")
+        # 资格通过：没有被闸门跳过（日志里不出现「跳过账号」）。
+        self.assertFalse(any("跳过账号" in line for line in scheduler.logs))
 
 
 if __name__ == "__main__":

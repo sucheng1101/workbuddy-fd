@@ -9,6 +9,7 @@
 """
 import threading
 import time
+import wb_broker
 import wb_tasks
 from wb_tasks import do_cat_travel
 
@@ -143,6 +144,12 @@ class Scheduler:
 
         for acc in list(self.pool.accounts):
             uid8 = acc.uid[:8] if acc.uid else "?"
+            # 自动任务闸门：只有「已启用 + 审核通过」的正常账号才参与保活/签到/
+            # 活跃上报/猫猫/连登等自动任务。公开登录异常（未通过正常性检查）或
+            # 被管理员停用/待审核的账号直接跳过，避免异常账号被自动调度。
+            if not wb_broker.task_eligible(acc):
+                self.log(f"跳过账号 [{uid8}]：未启用或未通过审核，不参与自动任务")
+                continue
             # 1. 检查 Token 剩余寿命 (小于 2 小时自动刷新保活)
             exp = acc.expires_at or 0
             if exp and (exp - time.time()) < 7200:

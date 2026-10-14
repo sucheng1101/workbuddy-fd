@@ -808,7 +808,9 @@ a:hover{text-decoration:underline}
   };
 
   // 3. Tab 初始化（与下方主脚本的 MAIN_TABS 保持一致）
-  var TABS = ['gateway','accounts','tasks','analytics','agents','settings','logs'];
+  var TABS = ['gateway','accounts','proxyagents','tasks','analytics','agents','settings','logs'];
+  // 多词页签的 CamelCase 落点，普通单词沿用「首字母大写」规则。
+  var TAB_ID = { proxyagents: 'ProxyAgents' };
   var pick = null;
   try {
     var q = new URLSearchParams(location.search).get('tab');
@@ -819,9 +821,10 @@ a:hover{text-decoration:underline}
 
   document.addEventListener('DOMContentLoaded', function(){
     TABS.forEach(function(t){
-      var page = document.getElementById('page' + t.charAt(0).toUpperCase() + t.slice(1));
+      var suffix = TAB_ID[t] || (t.charAt(0).toUpperCase() + t.slice(1));
+      var page = document.getElementById('page' + suffix);
       if(page) page.classList.toggle('active', t === pick);
-      var btn = document.getElementById('btnNav' + t.charAt(0).toUpperCase() + t.slice(1));
+      var btn = document.getElementById('btnNav' + suffix);
       if(btn) btn.classList.toggle('active', t === pick);
     });
     window.initThemeSystem();
@@ -962,6 +965,29 @@ a:hover{text-decoration:underline}
     '付费用户': 'Paid user',
     '代理地址': 'Proxy address',
     '代理槽': 'Proxy slots',
+    '代理管理': 'Agent management',
+    '代理归属': 'Agent owner',
+    '代理登录地址': 'Agent login URL',
+    '代理入口': 'Agent entry',
+    '入口状态': 'Entry status',
+    '总账号数': 'Total accounts',
+    '今日新增': 'New today',
+    '前天新增': 'New 2 days ago',
+    '稳定登录地址': 'Stable login URL',
+    '轮换登录地址': 'Rotate login URL',
+    '未绑定': 'Unbound',
+    '暂无代理': 'No agents yet',
+    '客户端接入': 'Client access',
+    '访问密钥': 'Access keys',
+    '代理加载失败:': 'Failed to load agents:',
+    '代理入口已暂停': 'Agent entry paused',
+    '代理入口已恢复': 'Agent entry resumed',
+    '登录地址已轮换': 'Login URL rotated',
+    '打开 CLI 配置页': 'Open the CLI config page',
+    '前往代理管理': 'Go to Agent management',
+    '下载 wb_agents.py': 'Download wb_agents.py',
+    '代理入口状态、稳定公开登录地址与账号归属统计；账号在公开登录成功后自动归属入池。': 'Agent entry status, stable public login URL and account-ownership stats; accounts are attributed and pooled automatically after a successful public login.',
+    '代理统计、入口状态与稳定公开登录地址，账号归属由公开登录自动完成。': 'Agent stats, entry status and the stable public login URL; account ownership is handled automatically by public login.',
     '任务': 'Task',
     '任务名称 / 代码': 'Task name / code',
     '任务执行中...': 'Running tasks...',
@@ -2911,6 +2937,9 @@ a:hover{text-decoration:underline}
   <button class="main-nav-btn" id="btnNavAccounts" onclick="switchMainTab('accounts')">
     账号
   </button>
+  <button class="main-nav-btn" id="btnNavProxyAgents" onclick="switchMainTab('proxyagents')">
+    代理管理
+  </button>
   <button class="main-nav-btn" id="btnNavTasks" onclick="switchMainTab('tasks')">
     任务与福利
   </button>
@@ -3260,6 +3289,23 @@ a:hover{text-decoration:underline}
     </div>
   </section>
   </div><!-- /pageAccounts -->
+
+  <div id="pageProxyAgents" class="main-page">
+  <!-- 独立「代理管理」管理员页：代理统计、入口状态与稳定公开登录地址。
+       列表/状态/按钮式操作，不引入页内导航。 -->
+  <div class="page-head">
+    <div class="page-head-main">
+      <h2>代理管理</h2>
+      <div class="page-head-desc">代理入口状态、稳定公开登录地址与账号归属统计；账号在公开登录成功后自动归属入池。</div>
+    </div>
+    <div class="page-head-actions">
+      <button class="sec mini" onclick="loadProxyAgents()">刷新</button>
+    </div>
+  </div>
+  <section>
+    <div id="proxyAgentList" class="table-wrap"></div>
+  </section>
+  </div><!-- /pageProxyAgents -->
   
   <div id="pageTasks" class="main-page">
   <!-- 页面头部：标题 + 一行说明，与其它页面的头部结构保持一致 -->
@@ -3729,6 +3775,18 @@ a:hover{text-decoration:underline}
       <!-- 已删除的 Key 只留名字和日期：密钥已抹掉，所以这里没有「复制」。
            历史用量按 id 记账，删掉这一行会让那些请求变成「未知 key」。 -->
       <div id="deletedKeySection"></div>
+    </section>
+
+    <section>
+      <h2>客户端接入</h2>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">
+        CLI 配置能力归到「设置 → 访问密钥 / 客户端接入」语义下：用上面生成的 API Key 在 <span class="mono">/cli</span> 页面配置 Codex / OpenCode / DeepSeek 等客户端；代理专属的公开登录入口与账号归属在「代理管理」页查看。
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="button secondary" href="/cli" target="_blank" rel="noopener">打开 CLI 配置页</a>
+        <button class="sec" onclick="switchMainTab('proxyagents')">前往代理管理</button>
+        <a class="button secondary" href="/agents/cli" target="_blank" rel="noopener">下载 wb_agents.py</a>
+      </div>
     </section>
 
     <section>
@@ -6175,6 +6233,19 @@ function closeActivityHistory(){
 // 账号的手动调度权重提示：与 wb_accounts._pick_weighted_first 的行为一一对应。
 const WEIGHT_TIP = '权重 >1 的账号优先接单，多个高权重账号按权重比分流量；它们都接不了单时其他账号照常顶上。已开始的会话保持粘性不换号，权重对新会话生效。1 = 不干预，临期积分优先等自动规则照旧。';
 
+// 账号表「代理归属」列：数据来自 /accounts 响应的 proxy_agents 映射（uid ->
+// {id,name,entry,login_url}），核心 Account.public DTO 不带代理字段，前端按 uid
+// 合并。未绑定统一显示占位，不出现空白单元格。
+function agentOwnerHtml(a){
+  const owner = (window.ACCOUNT_AGENTS || {})[a.uid];
+  if(owner && (owner.name || owner.entry)){
+    const label = owner.name || owner.entry;
+    const tip = '代理入口：' + (owner.entry || '') + (owner.login_url ? (' · ' + owner.login_url) : '');
+    return '<span class="badge s mini" title="' + esc(tip) + '">' + esc(label) + '</span>';
+  }
+  return '<span style="color:var(--dim)">未绑定</span>';
+}
+
 function accountRow(a){
   const realmBadge = a.realm === 'cn'
     ? '<span class="realm-badge-cn">国内版</span>'
@@ -6247,6 +6318,7 @@ function accountRow(a){
     + '<td style="text-align:center" data-label="状态">' + state + '</td>'
     + '<td style="text-align:center" data-label="今日活动">' + activityStatusChip(a) + '</td>'
     + '<td style="text-align:center" data-label="出口">' + slotSelectHtml(a) + '</td>'
+    + '<td style="text-align:center" data-label="代理归属">' + agentOwnerHtml(a) + '</td>'
     + '<td style="text-align:center;white-space:nowrap" data-label="权重">'
     +   '<select style="font-size:11px;padding:2px 4px" title="' + esc(WEIGHT_TIP) + '" onchange="setAccountWeight(&quot;' + uidAttr + '&quot;, this.value, this)">' + weightOpts + '</select></td>'
     + '<td style="text-align:left;white-space:nowrap" data-label="积分">' + credText + '</td>'
@@ -6611,6 +6683,7 @@ function renderAccounts(){
     + '<th style="text-align:center;width:84px">状态</th>'
     + '<th style="text-align:center;width:118px">今日活动</th>'
     + '<th style="text-align:center;width:150px">出口</th>'
+    + '<th style="text-align:center;width:110px">代理归属</th>'
     + '<th style="text-align:center;width:64px">权重</th>'
     + '<th style="text-align:left;width:120px">积分</th>'
     + '<th style="text-align:right;width:70px">请求</th>'
@@ -6632,6 +6705,7 @@ async function loadAccounts(){
       loadActivityToday(),
     ]);
     window.ACCOUNTS = acct.accounts || [];
+    window.ACCOUNT_AGENTS = acct.proxy_agents || {};
     USAGE_BY_ACCOUNT = {};
     (byAcct.accounts || []).forEach(a => { USAGE_BY_ACCOUNT[a.account] = a; });
     await loadProxySlots();
@@ -7952,7 +8026,7 @@ function generatePageList(current, total){
 
 // Tab ids in nav order. One list so the restore path and the nav cannot
 // drift apart.
-const MAIN_TABS = ['gateway', 'accounts', 'tasks', 'analytics', 'agents', 'settings', 'logs'];
+const MAIN_TABS = ['gateway', 'accounts', 'proxyagents', 'tasks', 'analytics', 'agents', 'settings', 'logs'];
 const MAIN_TAB_STORE = 'wb-proxy-main-tab';
 let currentMainTab = 'gateway';
 let analyticsRange = 'today';
@@ -8204,6 +8278,12 @@ const PAGE_KEEP_VISIBLE = 'settings';
 const NAV_BUTTON_PREFIX = 'btnNav';
 /* 页面 key 的合法形状，与 wb_settings.PAGE_KEY_RE 一致 */
 const PAGE_KEY_SHAPE = /^[a-z][a-z0-9_-]{0,31}$/;
+/* 多词页签的 CamelCase 页面后缀；普通单词沿用「首字母大写」规则，与启动脚本
+   的 TAB_ID 保持一致（proxyagents → pageProxyAgents）。 */
+const NAV_PAGE_SUFFIX = { proxyagents: 'ProxyAgents' };
+function pageIdForKey(key){
+  return 'page' + (NAV_PAGE_SUFFIX[key] || (key.charAt(0).toUpperCase() + key.slice(1)));
+}
 
 let _hiddenPages = [];
 
@@ -8223,7 +8303,7 @@ function navPageRows(){
     rows.push({
       key: key,
       btn: btn,
-      page: document.getElementById('page' + key.charAt(0).toUpperCase() + key.slice(1)),
+      page: document.getElementById(pageIdForKey(key)),
     });
   });
   return rows;
@@ -9983,6 +10063,76 @@ function toggleWorkspaceNav(event){
   } catch(e){}
 })();
 
+/* ---- 代理管理（管理员页）----
+   数据来源：GET /broker/agents（管理员域，含统计/入口状态/稳定登录 URL）。
+   操作沿用列表/状态/按钮风格：暂停、恢复、轮换公开登录地址。账号绑定在公开
+   登录成功时自动完成，这里不提供绑定/解绑/冻结等逐账号操作。 */
+async function loadProxyAgents(){
+  const box = document.getElementById('proxyAgentList');
+  if(!box) return;
+  try{
+    const data = await getJSON('/broker/agents');
+    renderProxyAgents(data.agents || []);
+  }catch(e){
+    box.innerHTML = '<div style="padding:20px;color:var(--bad)">代理加载失败: ' + esc(e.message) + '</div>';
+  }
+}
+
+function renderProxyAgents(agents){
+  const box = document.getElementById('proxyAgentList');
+  if(!box) return;
+  if(!agents.length){
+    box.innerHTML = '<div style="padding:20px;color:var(--dim)">暂无代理</div>';
+    return;
+  }
+  const rows = agents.map(function(a){
+    const idAttr = esc(String(a.id || '').replace(/[^\w.-]/g, ''));
+    const status = a.paused
+      ? '<span class="badge off">已暂停</span>'
+      : '<span class="badge ok">可用</span>';
+    const url = a.login_url
+      ? ('<a class="mono" href="' + esc(a.login_url) + '" target="_blank" rel="noopener">' + esc(a.login_url) + '</a>')
+      : '<span style="color:var(--dim)">—</span>';
+    const pauseBtn = a.paused
+      ? '<button class="sec mini" onclick="agentAdminAction(&quot;' + idAttr + '&quot;, &quot;resume&quot;, this)">恢复</button>'
+      : '<button class="sec mini" onclick="agentAdminAction(&quot;' + idAttr + '&quot;, &quot;pause&quot;, this)">暂停</button>';
+    const stats = '<div style="font-size:11px;color:var(--dim)">'
+      + '总账号数 ' + fmt(a.total_accounts || 0)
+      + ' · 今日新增 ' + fmt(a.new_today || 0)
+      + ' · 前天新增 ' + fmt(a.new_before_yesterday || 0) + '</div>';
+    return '<tr>'
+      + '<td style="text-align:left"><b>' + esc(a.name) + '</b>'
+      +   '<div class="mono" style="color:var(--dim);font-size:11px">' + esc(a.entry) + '</div>'
+      +   stats + '</td>'
+      + '<td style="text-align:center">' + status + '</td>'
+      + '<td style="text-align:left" class="mono">' + url + '</td>'
+      + '<td style="text-align:center;white-space:nowrap">'
+      +   pauseBtn
+      +   '<button class="sec mini" style="margin-left:6px" onclick="agentAdminAction(&quot;' + idAttr + '&quot;, &quot;rotate&quot;, this)">轮换登录地址</button>'
+      + '</td></tr>';
+  }).join('');
+  box.innerHTML = '<table class="data-table" style="width:100%"><thead><tr>'
+    + '<th style="text-align:left">代理</th>'
+    + '<th style="text-align:center;width:90px">入口状态</th>'
+    + '<th style="text-align:left">稳定登录地址</th>'
+    + '<th style="text-align:center;width:230px">操作</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+async function agentAdminAction(agentId, action, btn){
+  if(btn) btn.disabled = true;
+  try{
+    await postJSON('/broker/agents/' + encodeURIComponent(agentId) + '/' + action, {});
+    await loadProxyAgents();
+    toast(action === 'pause' ? '代理入口已暂停'
+          : (action === 'resume' ? '代理入口已恢复' : '登录地址已轮换'), 'ok');
+  }catch(e){
+    toast('操作失败: ' + e.message, 'bad');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
 function switchMainTab(tab){
   // 入口被撤掉后（?tab=agents 的书签、上次停留的页签）退回网关页
   if(tab === 'agents' && !AGENTS_AVAILABLE) tab = 'gateway';
@@ -10006,6 +10156,7 @@ function switchMainTab(tab){
   const btnGateway = document.getElementById('btnNavGateway');
   const btnTasks = document.getElementById('btnNavTasks');
   const btnAccounts = document.getElementById('btnNavAccounts');
+  const btnProxyAgents = document.getElementById('btnNavProxyAgents');
   const btnAnalytics = document.getElementById('btnNavAnalytics');
   const btnLogs = document.getElementById('btnNavLogs');
   const btnSettings = document.getElementById('btnNavSettings');
@@ -10013,6 +10164,7 @@ function switchMainTab(tab){
   const pageGateway = document.getElementById('pageGateway');
   const pageTasks = document.getElementById('pageTasks');
   const pageAccounts = document.getElementById('pageAccounts');
+  const pageProxyAgents = document.getElementById('pageProxyAgents');
   const pageAnalytics = document.getElementById('pageAnalytics');
   const pageLogs = document.getElementById('pageLogs');
   const pageSettings = document.getElementById('pageSettings');
@@ -10020,6 +10172,7 @@ function switchMainTab(tab){
   const tabs = [
     ['gateway', btnGateway, pageGateway],
     ['accounts', btnAccounts, pageAccounts],
+    ['proxyagents', btnProxyAgents, pageProxyAgents],
     ['tasks', btnTasks, pageTasks],
     ['analytics', btnAnalytics, pageAnalytics],
     ['logs', btnLogs, pageLogs],
@@ -10037,6 +10190,7 @@ function switchMainTab(tab){
   if(tab === 'analytics'){ loadAnalytics(); loadAnalyticsMatrix(); }
   if(tab === 'settings'){ loadSettings(); loadProxySlots(); }
   if(tab === 'agents'){ loadAgents(); }
+  if(tab === 'proxyagents'){ loadProxyAgents(); }
   if(tab === 'logs'){
     startLogPolling();
     fetchNewLogs(true);
