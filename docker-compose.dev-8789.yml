@@ -1,0 +1,41 @@
+# 开发版 8789 专用 Compose（独立项目名/镜像名/容器名，避免与生产 8788 冲突）
+# 目标代码：HEAD e7bc19a (dashboard.html 工作台重构)
+#
+# 用法：
+#   docker compose -f docker-compose.dev-8789.yml config
+#   docker compose -f docker-compose.dev-8789.yml up -d --build --force-recreate
+#   docker compose -f docker-compose.dev-8789.yml down
+#
+# 说明：
+#   - 使用当前仓库源码构建，确保 dashboard.html 来自 HEAD e7bc19a。
+#   - 数据卷指向独立开发目录，绝不挂载生产 8788 的 accounts/usage。
+name: workbuddy-fd-dev-8789
+services:
+  wb-proxy-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: workbuddy-fd-dev:8789
+    container_name: workbuddy-fd-dev-8789
+    restart: unless-stopped
+    user: "${PUID:-0}:${PGID:-0}"
+    ports:
+      - "8789:8789"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8789
+      TZ: Asia/Shanghai
+      WORKBUDDY_FD_VERSION: dev-8789-e7bc19a
+    volumes:
+      - D:/Desktop/object/workbuddy-fd-dev/accounts-dev:/app/accounts
+      - D:/Desktop/object/workbuddy-fd-dev/usage-dev:/app/usage
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT','8789'), timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    labels:
+      com.workbuddy-fd.project: workbuddy-fd-dev
+      com.workbuddy-fd.version: dev-8789
+      com.workbuddy-fd.commit: e7bc19a
