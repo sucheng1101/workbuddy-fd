@@ -62,6 +62,7 @@ import secrets
 import wb_accounts
 import wb_activity
 import wb_atrest
+import wb_broker
 import wb_catalog
 import wb_egress
 import wb_ipintel
@@ -302,18 +303,41 @@ def resize_chat_slots(ready_accounts):
     log("chat slots : %d (one per ready account; WB_MAX_CONCURRENT_CHAT=auto)"
         % wanted)
     return wanted
-_login_attempts = {}  # ip -> list of timestamp
-def _prune_login_attempts(now=None, window=60):
-    """Drop stale per-IP entries so the dict cannot grow without bound.
+LOGIN_RATE_WINDOW = 60  # 限流窗口（秒）
+LOGIN_RATE_MAX = 5      # 窗口内允许的连续失败次数
+_login_attempts = {}        # 面板登录：来源 -> list of timestamp
+_agent_login_attempts = {}  # 代理登录：来源 -> list of timestamp（与面板分开分桶）
+def _prune_login_bucket(bucket, now=None, window=LOGIN_RATE_WINDOW):
+    """Drop stale per-IP entries so a bucket cannot grow without bound.
     Caller must hold _login_lock.
     """
     now = now or time.time()
-    for ip in list(_login_attempts.keys()):
-        recent = [t for t in _login_attempts[ip] if now - t < window]
+    for ip in list(bucket.keys()):
+        recent = [t for t in bucket[ip] if now - t < window]
         if recent:
-            _login_attempts[ip] = recent
+            bucket[ip] = recent
         else:
-            del _login_attempts[ip]
+            del bucket[ip]
+def _prune_login_attempts(now=None, window=LOGIN_RATE_WINDOW):
+    """面板登录桶的裁剪（旧入口，语义不变）。Caller must hold _login_lock."""
+    _prune_login_bucket(_login_attempts, now, window)
+def login_retry_after(bucket, key, now=None, window=LOGIN_RATE_WINDOW,
+                      limit=LOGIN_RATE_MAX):
+    """这个来源是否已被限流：返回还需等待的秒数，未触发返回 0。
+
+    只读地裁剪桶并按窗口内的失败次数判定，不修改失败计数；要记一次失败仍
+    需调用方自己 note_login_failure。Caller must hold _login_lock。
+    """
+    now = time.time() if now is None else now
+    _prune_login_bucket(bucket, now, window)
+    attempts = bucket.get(key, [])
+    if len(attempts) >= limit:
+        return max(1, int(window - (now - attempts[0])))
+    return 0
+def note_login_failure(bucket, key, now=None):
+    """记一次登录失败。Caller must hold _login_lock。"""
+    now = time.time() if now is None else now
+    bucket.setdefault(key, []).append(now)
 # --------------------------------------------------- 面板登录限流的来源判定
 # 限流按「客户端 IP」分桶（每 IP 5 次失败 / 60 秒），但反代部署下 socket 对端
 # 永远不是真实客户端：路由器上 nginx 把 ai.home 转给 127.0.0.1:8788，所有请求
@@ -5708,6 +5732,68 @@ def _find_public_page(slug):
     return None
 
 _load_public_login_pages()
+
+# ---- 代理业务闭环（v0.5.0 最小实现，见 wb_broker.py）----
+# 状态落在 ACCOUNTS_DIR 下的 proxy_agents.json / proxy_bindings.json /
+# proxy_settlements.json，与公开登录页注册表同一持久化目录，兼容独立开发数据
+# 目录。Broker 实例按 ACCOUNTS_DIR 缓存：测试或运行时切换账号目录时各自拿到
+# 独立状态，不会串数据。
+_BROKERS = {}
+
+
+def broker():
+    key = os.path.abspath(ACCOUNTS_DIR)
+    inst = _BROKERS.get(key)
+    if inst is None:
+        inst = wb_broker.Broker(ACCOUNTS_DIR, log=log)
+        _BROKERS[key] = inst
+    return inst
+
+
+def broker_account_status(account, now=None):
+    if account is None:
+        return None
+    return wb_broker.account_status(
+        getattr(account, "review_status", "approved"),
+        getattr(account, "enabled", True),
+        getattr(account, "expires_at", 0),
+        now,
+    )
+
+
+def broker_account_dto(account, frozen=False, now=None):
+    """代理可见的账号白名单投影：只有 nickname / status / login_at。
+
+    绝不包含 uid、内部 id、token、凭证、quota、usage、amount。
+    """
+    if account is None:
+        return None
+    status = broker_account_status(account, now)
+    if frozen and status == wb_broker.STATUS_ACTIVE:
+        status = wb_broker.STATUS_FROZEN
+    nickname = getattr(account, "nickname", "") or ""
+    return {
+        "nickname": nickname,
+        "status": status,
+        "login_at": getattr(account, "added_at", None),
+    }
+
+
+def broker_effective_uids(agent_id):
+    """某代理名下「有效」账号 uid：已绑定、未冻结、且处于 active 状态。"""
+    b = broker()
+    effective = []
+    for uid in b.bound_uids(agent_id):
+        if b.is_frozen(agent_id, uid):
+            continue
+        account = POOL.get(uid) if POOL else None
+        if account is None:
+            continue
+        if broker_account_status(account) == wb_broker.STATUS_ACTIVE:
+            effective.append(uid)
+    return effective
+
+
 def realm_state_file():
     """Path of the persisted realm switch.
 
@@ -15793,6 +15879,8 @@ class Handler(BaseHTTPRequestHandler):
             return True
         if path.startswith("/agents"):
             return True
+        if path.startswith("/broker"):
+            return True
         return False
     def do_OPTIONS(self):
         self.send_response(204)
@@ -15817,6 +15905,10 @@ class Handler(BaseHTTPRequestHandler):
         # same wb_agents.py shipped in the repository, no secrets inside).
         if path == "/agents/cli":
             return self._get_agents_cli()
+        # 代理专属后台接口走独立 session（X-Agent-Token），与面板密码会话互不
+        # 干扰，因此必须放在面板闸门之前。
+        if path in ("/agent/session", "/agent/accounts", "/agent/settlements"):
+            return self._agent_get(path)
         if self._is_panel_route(path) and not self._panel_ok():
             return self._error(401, "panel password required", "invalid_request_error")
         if path in ("/", "/dashboard", "/ui"):
@@ -15889,6 +15981,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"enabled": self._agents_client_allowed()})
         if path == "/public-login/pages":
             return self._get_public_login_pages()
+        if path == "/broker/agents":
+            return self._broker_admin_list_agents()
+        if path == "/broker/agents/pending":
+            return self._broker_admin_pending()
+        if path == "/broker/settlements":
+            return self._broker_admin_list_settlements()
+        if path.startswith("/broker/agents/") and path.endswith("/accounts"):
+            return self._broker_admin_agent_accounts(path)
         return self._error(404, "not found", "invalid_request_error")
 
     def _get_public_login_pages(self):
@@ -16039,6 +16139,164 @@ class Handler(BaseHTTPRequestHandler):
                 page["updated_at"] = time.time(); _save_public_login_pages()
                 return self._json(200, _public_page_view(page))
         return self._error(404, "not found", "invalid_request_error")
+
+    # ---- 代理业务闭环：代理 session 与后台接口 ----
+    def _agent_token(self):
+        """代理 session token，只从 X-Agent-Token 头读取（与面板 token 同款，
+        不进查询串）。"""
+        return (self.headers.get("X-Agent-Token") or "").strip()
+
+    def _agent_session(self):
+        """校验代理 session；失败时已写响应并返回 None。"""
+        agent_id = broker().session_agent_id(self._agent_token())
+        if not agent_id:
+            self._error(401, "agent session required", "invalid_request_error")
+            return None
+        agent = broker().get_agent(agent_id)
+        if not agent:
+            self._error(401, "agent session required", "invalid_request_error")
+            return None
+        if agent.get("paused"):
+            self._error(403, "agent entry is paused", "invalid_request_error")
+            return None
+        return agent
+
+    def _agent_get(self, path):
+        agent = self._agent_session()
+        if agent is None:
+            return
+        agent_id = agent.get("id")
+        if path == "/agent/session":
+            return self._json(200, {"agent": wb_broker.Broker.agent_view(agent)})
+        if path == "/agent/accounts":
+            b = broker()
+            accounts = []
+            for uid in b.bound_uids(agent_id):
+                dto = broker_account_dto(
+                    POOL.get(uid) if POOL else None,
+                    frozen=b.is_frozen(agent_id, uid))
+                if dto is not None:
+                    accounts.append(dto)
+            return self._json(200, {
+                "accounts": accounts,
+                "effective_account_count": len(broker_effective_uids(agent_id)),
+            })
+        if path == "/agent/settlements":
+            return self._json(
+                200, {"settlements": broker().settlements_for_agent(agent_id)})
+        return self._error(404, "not found", "invalid_request_error")
+
+    def _agent_login(self, payload):
+        # 代理登录与面板登录共用一套限流语义（每来源 5 次失败 / 60 秒），但分开
+        # 分桶：代理入口是给外部代理用的，不能让代理域的爆破把管理员的登录也锁死，
+        # 反之亦然。来源判定复用 login_rate_limit_key（可信反代后才读代理头）。
+        peer_ip = self.client_address[0] if hasattr(self, "client_address") and self.client_address else "127.0.0.1"
+        client_ip = login_rate_limit_key(peer_ip, getattr(self, "headers", None))
+        now = time.time()
+        with _login_lock:
+            wait_sec = login_retry_after(_agent_login_attempts, client_ip, now)
+        if wait_sec:
+            return self._error(429, f"too many login attempts, please wait {wait_sec}s", "rate_limit_error")
+        entry = payload.get("entry") or payload.get("username") or payload.get("slug")
+        try:
+            token, expires_at = broker().login(entry, payload.get("password"))
+        except wb_broker.BrokerError as exc:
+            # 只有凭据错误计入失败次数：暂停入口（403）是管理员的决定，不是爆破。
+            if exc.code == 401:
+                with _login_lock:
+                    note_login_failure(_agent_login_attempts, client_ip, now)
+                time.sleep(0.5)
+            return self._error(exc.code, exc.message, "invalid_request_error")
+        with _login_lock:
+            _agent_login_attempts.pop(client_ip, None)
+        return self._json(200, {"token": token, "expires_at": expires_at})
+
+    def _agent_logout(self):
+        if self._agent_session() is None:
+            return
+        broker().logout(self._agent_token())
+        return self._json(200, {"logged_out": True})
+
+    def _broker_admin_list_agents(self):
+        return self._json(200, {"agents": broker().list_agents()})
+
+    def _broker_admin_pending(self):
+        rows = []
+        if POOL:
+            for account in getattr(POOL, "accounts", []) or []:
+                if str(getattr(account, "review_status", "")).lower() in ("pending_review", "pending"):
+                    dto = broker_account_dto(account)
+                    dto["uid"] = account.uid
+                    dto["realm"] = getattr(account, "realm", "")
+                    rows.append(dto)
+        rows.sort(key=lambda row: row.get("login_at") or 0)
+        return self._json(200, {"pending": rows})
+
+    def _broker_admin_agent_accounts(self, path):
+        parts = [p for p in path.split("/") if p]
+        if (len(parts) != 4 or parts[0] != "broker" or parts[1] != "agents"
+                or parts[3] != "accounts"):
+            return self._error(404, "not found", "invalid_request_error")
+        agent_id = parts[2]
+        b = broker()
+        if not b.get_agent(agent_id):
+            return self._error(404, "agent not found", "invalid_request_error")
+        effective = set(broker_effective_uids(agent_id))
+        rows = []
+        for uid in b.bound_uids(agent_id):
+            account = POOL.get(uid) if POOL else None
+            if account is None:
+                continue
+            dto = broker_account_dto(account, frozen=b.is_frozen(agent_id, uid))
+            dto["uid"] = uid
+            dto["effective"] = uid in effective
+            rows.append(dto)
+        return self._json(200, {"accounts": rows})
+
+    def _broker_admin_list_settlements(self):
+        return self._json(200, {"settlements": broker().list_settlements()})
+
+    def _broker_admin_post(self, path, payload):
+        b = broker()
+        parts = [p for p in path.split("/") if p]
+        try:
+            if parts == ["broker", "agents"]:
+                view = b.create_agent(payload.get("name"), payload.get("password"),
+                                      payload.get("entry"))
+                return self._json(201, view)
+            if parts == ["broker", "settlements"]:
+                period = payload.get("period") or time.strftime("%Y-%m")
+                items = [{"agent_id": agent["id"], "agent_name": agent["name"],
+                          "effective_account_count": len(broker_effective_uids(agent["id"]))}
+                         for agent in b.list_agents()]
+                view = b.generate_settlement(period, items)
+                return self._json(200, view)
+            if (len(parts) == 4 and parts[0] == "broker"
+                    and parts[1] == "settlements" and parts[3] == "confirm"):
+                return self._json(200, b.confirm_settlement(parts[2]))
+            if len(parts) == 4 and parts[0] == "broker" and parts[1] == "agents":
+                agent_id, action = parts[2], parts[3]
+                if action in ("pause", "resume"):
+                    return self._json(200, b.set_paused(agent_id, action == "pause"))
+                if action == "rotate":
+                    return self._json(200, b.rotate_entry(agent_id, payload.get("password")))
+                if action in ("bind", "unbind", "freeze", "restore"):
+                    uid = payload.get("uid") or payload.get("account_uid")
+                    if action == "bind":
+                        if not (POOL and POOL.get(uid)):
+                            return self._error(404, "account not found", "invalid_request_error")
+                        binding, created = b.bind(agent_id, uid)
+                        return self._json(201 if created else 200, {"binding": binding})
+                    if action == "unbind":
+                        b.unbind(agent_id, uid)
+                        return self._json(200, {"unbound": True})
+                    frozen = action == "freeze"
+                    return self._json(200, {"binding": b.set_frozen(agent_id, uid, frozen)})
+                return self._error(404, "not found", "invalid_request_error")
+        except wb_broker.BrokerError as exc:
+            return self._error(exc.code, exc.message, "invalid_request_error")
+        return self._error(404, "not found", "invalid_request_error")
+
     def _get_dashboard(self):
         return self._dashboard()
 
@@ -17340,16 +17598,13 @@ class Handler(BaseHTTPRequestHandler):
             client_ip = login_rate_limit_key(peer_ip, getattr(self, "headers", None))
             now = time.time()
             with _login_lock:
-                _prune_login_attempts(now)
-                attempts = [t for t in _login_attempts.get(client_ip, []) if now - t < 60]
-                _login_attempts[client_ip] = attempts
-                if len(attempts) >= 5:
-                    wait_sec = int(60 - (now - attempts[0]))
-                    return self._error(429, f"too many login attempts, please wait {max(1, wait_sec)}s", "rate_limit_error")
+                wait_sec = login_retry_after(_login_attempts, client_ip, now)
+            if wait_sec:
+                return self._error(429, f"too many login attempts, please wait {wait_sec}s", "rate_limit_error")
             password = str(payload.get("password") or "")
             if not wb_settings.verify_panel_password(ACCOUNTS_DIR, password):
                 with _login_lock:
-                    _login_attempts.setdefault(client_ip, []).append(now)
+                    note_login_failure(_login_attempts, client_ip, now)
                 # Small backoff delay to mitigate automated brute force
                 time.sleep(0.5)
                 return self._error(401, "invalid panel password", "invalid_request_error")
@@ -18500,6 +18755,24 @@ class Handler(BaseHTTPRequestHandler):
             if payload is None:
                 return
             return self._post_public_login_admin(path, payload)
+        if path == "/agent/login":
+            payload = self._payload_or_error()
+            if payload is None:
+                return
+            return self._agent_login(payload)
+        if path == "/agent/logout":
+            payload = self._payload_or_error()
+            if payload is None:
+                return
+            return self._agent_logout()
+        if path.startswith("/broker/"):
+            # 管理员域：创建/暂停/恢复/轮换代理入口、审核绑定、生成与确认结算。
+            if not self._panel_ok():
+                return self._error(401, "panel password required", "invalid_request_error")
+            payload = self._payload_or_error()
+            if payload is None:
+                return
+            return self._broker_admin_post(path, payload)
         if path == "/settings/save":
             if not self._panel_ok():
                 return self._error(401, "panel password required", "invalid_request_error")

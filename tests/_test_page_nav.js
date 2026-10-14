@@ -1,12 +1,12 @@
-/* 页面区块锚点契约（页内区块导航已移除）。
+/* 页内区块导航彻底移除后的契约（v0.5.0，issue：统一保留全局左侧主导航）。
  *
- * 仪表盘不再渲染 .page-sidebar / .page-nav，多区块页面改用分段按钮切换。这里
- * 只钉住仍承诺的“旧锚点兼容”性质：
+ * 8789 看板不再有任何「本页导航 / 区块导航」表现与残留逻辑：没有
+ * .page-sidebar / .page-nav / .page-nav-body DOM、没有 page-nav-item /
+ * page-sidebar-toggle 样式，也没有 initPageNav / pageNavSections /
+ * pageNavLabel / pageNavAnchorId 这些只服务于页内导航的函数。
  *
- *   - initPageNav(page) 只给参与导航的区块补稳定 id（page-sec-<hash>），不建侧栏；
- *   - 已有 id 的区块不被覆盖；嵌套/无 h2/隐藏的区块不参与；
- *   - restorePageNavHash() 只在带 #锚点 打开时把本页“可见、可导航”的区块滚到视口，
- *     别的页面的锚点或被隐藏的区块不触发滚动。
+ * 只保留一条最小兼容：打开带 #id 的地址时，如果页面上真有这个 id，就滚到它；
+ * 不会扫描 section、不会生成锚点、不会创建任何页内导航 UI。
  *
  * 对着 dashboard.html 里真实函数跑。Run with Node.
  */
@@ -17,16 +17,24 @@ const {dashboardHtml, dashboardScript} = require('./_dashboard_source.js');
 const html = dashboardHtml();
 const script = dashboardScript();
 
-/* ---- 1. 标记里不再有侧栏 / 两栏样式 ---- */
-assert.ok(html.includes('initPageNav'), 'dashboard.html 应当有 initPageNav');
+/* ---- 1. 标记和脚本里不再有任何页内导航残留 ---- */
 assert.ok(!/class="page-sidebar"/.test(html), '侧栏不应写死在标记里');
-assert.ok(!html.includes('function pageNavSignature'), '侧栏指纹函数应已移除');
-assert.ok(!html.includes('PAGE_NAV_COLLAPSE_KEY'), '侧栏收起键应已移除');
-assert.ok(!html.includes('.main-page.page-nav-on > .page-sidebar'), '两栏侧栏样式应已移除');
-assert.ok(!html.includes('page-nav-item'), '导航项样式/脚本应已移除');
-assert.ok(!html.includes('page-sidebar-toggle'), '侧栏收起按钮应已移除');
+assert.ok(!html.includes('page-sidebar'), 'page-sidebar 应已彻底移除');
+assert.ok(!html.includes('page-nav'), 'page-nav 相关标记/类名应已彻底移除');
+assert.ok(!html.includes('page-nav-body'), 'page-nav-body 包裹层应已彻底移除');
+assert.ok(!html.includes('page-nav-item'), '导航项样式应已彻底移除');
+assert.ok(!html.includes('page-sidebar-toggle'), '侧栏收起按钮应已彻底移除');
+assert.ok(!html.includes('pageNavSignature'), '侧栏指纹函数应已彻底移除');
+assert.ok(!html.includes('PAGE_NAV_COLLAPSE_KEY'), '侧栏收起键应已彻底移除');
+assert.ok(!html.includes('pageNavSections'), 'pageNavSections 应已彻底移除');
+assert.ok(!html.includes('pageNavLabel'), 'pageNavLabel 应已彻底移除');
+assert.ok(!html.includes('pageNavAnchorId'), 'pageNavAnchorId 应已彻底移除');
+assert.ok(!html.includes('initPageNav'), 'initPageNav 应已彻底移除');
+assert.ok(!html.includes('restorePageNavHash'), 'restorePageNavHash 应已彻底移除');
+assert.ok(!html.includes('本页导航'), '本页导航文案应已彻底移除');
+assert.ok(!html.includes('本页区块导航'), '本页区块导航文案应已彻底移除');
 
-/* ---- 一个只够跑锚点的极简 DOM ---- */
+/* ---- 一个只够跑锚点兼容的极简 DOM ---- */
 const ALL = [];
 function El(tag, ephemeral){
   this.tagName = String(tag).toUpperCase();
@@ -185,124 +193,57 @@ global.confirm = () => false;
 global.fetch = () => Promise.resolve({ ok: false, status: 500, json: async () => ({}), text: async () => '' });
 
 const api = new Function(script + `
-  return { initPageNav, pageNavSections, pageNavLabel, pageNavAnchorId,
-           restorePageNavHash, switchMainTab };`)();
+  return { restorePageHash, scrollToPageSection, switchMainTab };`)();
 
-/* ---- 造页面的小工具 ---- */
-function sectionEl(label, opts){
-  opts = opts || {};
-  const sec = new El('section');
-  if(opts.id) sec.id = opts.id;
-  if(opts.hidden) sec.style.display = 'none';
-  if(label !== null){
-    const h = new El('h2');
-    h.appendChild(label);
-    if(opts.em){ const em = new El('em'); em.id = opts.em; em.appendChild('7'); h.appendChild(em); }
-    sec.appendChild(h);
-  }
-  return sec;
-}
-function pageEl(id, sections){
-  const page = new El('div');
-  page.className = 'main-page';
-  page.id = id;
-  sections.forEach(sec => page.appendChild(sec));
-  return page;
-}
-function attach(page){ root.appendChild(page); return page; }
+/* ---- 2. 只按 id 落位：存在的元素才滚，不存在就不动 ---- */
+const target = new El('div');
+target.id = 'known-anchor';
+target.rectTop = 240;
+root.appendChild(target);
 
-/* ---- 2. 哪些区块参与导航 ---- */
-const secAccount = sectionEl('账号', { em: 'acctCount' });
-const secRecent = sectionEl('最近请求');
-const secGrowth = sectionEl('成长任务', { hidden: true });
-const secUntitled = sectionEl(null);                 // 没有 h2，不成项
-const group = sectionEl('高级设置');
-const nestedA = sectionEl('嵌套甲');                  // 嵌套 section 属于父区块的内容
-const nestedB = sectionEl('嵌套乙');
-group.appendChild(nestedA);
-group.appendChild(nestedB);
-const gateway = pageEl('pageGateway', [secAccount, secRecent, secGrowth, secUntitled, group]);
-
-assert.deepStrictEqual(
-  api.pageNavSections(gateway).map(sec => api.pageNavLabel(sec, 0)),
-  ['账号', '最近请求', '高级设置'],
-  '只收最外层、有 h2、且未隐藏的区块；标题要剔除 <em>');
-
-// 隐藏的嵌套区块本来也不成项
-nestedA.style.display = 'none';
-assert.deepStrictEqual(
-  api.pageNavSections(gateway).map(sec => api.pageNavLabel(sec, 0)),
-  ['账号', '最近请求', '高级设置'],
-  '隐藏的嵌套区块本来也不成项');
-nestedA.style.display = '';
-// 整块显隐确实会改变清单
-secGrowth.style.display = 'block';
-assert.deepStrictEqual(
-  api.pageNavSections(gateway).map(sec => api.pageNavLabel(sec, 0)),
-  ['账号', '最近请求', '成长任务', '高级设置'],
-  '区块显出来后要进导航');
-secGrowth.style.display = 'none';
-
-/* ---- 3. 锚点 id：与顺序无关、可复用、冲突加后缀 ---- */
-assert.strictEqual(api.pageNavAnchorId('账号', new Set()), api.pageNavAnchorId('账号', new Set()),
-  '同一标题必须得到同一个 id');
-assert.notStrictEqual(api.pageNavAnchorId('账号', new Set()), api.pageNavAnchorId('最近请求', new Set()),
-  '不同标题必须得到不同 id');
-const taken = new Set([api.pageNavAnchorId('账号', new Set())]);
-assert.strictEqual(api.pageNavAnchorId('账号', taken),
-  api.pageNavAnchorId('账号', new Set()) + '-2', 'id 撞车要顺延');
-
-/* ---- 4. initPageNav：只补锚点，不建侧栏 ---- */
-attach(gateway);
-gateway.classList.add('active');
-api.pageNavSections(gateway).forEach((sec, i) => { sec.rectTop = 120 + i * 300; });
-api.initPageNav(gateway);
-assert.strictEqual(gateway.querySelector('.page-sidebar'), null, '不应再创建侧栏 DOM');
-assert.strictEqual(gateway.querySelector('.page-nav'), null, '不应再创建导航列表 DOM');
-assert.ok(!gateway.classList.contains('page-nav-on'), '不应再启用页面级两栏');
-for(const sec of api.pageNavSections(gateway)){
-  assert.ok(sec.id, '每个参与导航的区块都要有锚点 id');
-}
-const idOfAccount = api.pageNavSections(gateway)[0].id;
-assert.ok(idOfAccount.indexOf('page-sec-') === 0, '锚点 id 由标题哈希得到：' + idOfAccount);
-
-// 已有 id 的区块不被覆盖
-const pinned = new El('section');
-pinned.id = 'keep-me';
-const pinnedH2 = new El('h2'); pinnedH2.appendChild('带 id 的区块'); pinned.appendChild(pinnedH2);
-const pageKeep = pageEl('pageKeep', [pinned, sectionEl('另一个')]);
-attach(pageKeep);
-api.initPageNav(pageKeep);
-assert.strictEqual(pinned.id, 'keep-me', '已有 id 不应被覆盖');
-assert.ok(api.pageNavSections(pageKeep)[1].id.indexOf('page-sec-') === 0, '没有 id 的区块仍会补锚点');
-
-// 重复调用幂等，id 不变
-api.initPageNav(gateway);
-assert.strictEqual(api.pageNavSections(gateway)[0].id, idOfAccount, '重复调用锚点 id 不变');
-
-/* ---- 5. #锚点 只落在本页可见、可导航的区块上 ---- */
-window.location.hash = '#' + idOfAccount;
+window.location.hash = '#known-anchor';
 global.__scroll = null;
-api.restorePageNavHash();
-assert.ok(global.__scroll, '本页可导航区块的锚点应触发滚动');
+api.restorePageHash();
+assert.ok(global.__scroll, '存在的 #id 应触发滚动');
 assert.strictEqual(global.__scroll.behavior, 'auto', '带锚点打开是直接落位，不是平滑滚动');
 
-window.location.hash = '#' + api.pageNavSections(pageKeep)[0].id;   // 别的页面上的区块
+// 假 DOM 的 getElementById 会对任意 id 惰性建元素，真实 DOM 返回 null；
+// 这里把未知 id 显式覆盖成 null，模拟真实浏览器的行为。
+const realGetById = global.document.getElementById;
+global.document.getElementById = id => (id === 'missing-anchor' ? null : realGetById(id));
+window.location.hash = '#missing-anchor';
 global.__scroll = null;
-api.restorePageNavHash();
-assert.strictEqual(global.__scroll, null, '别的页面的锚点不该让当前页滚动');
+api.restorePageHash();
+assert.strictEqual(global.__scroll, null, '不存在的 #id 不应触发滚动');
 
-secRecent.style.display = 'none';                     // 本页但已被隐藏
-window.location.hash = '#' + secRecent.id;
+window.location.hash = '';
 global.__scroll = null;
-api.restorePageNavHash();
-assert.strictEqual(global.__scroll, null, '被隐藏的区块不能当锚点落点');
-secRecent.style.display = '';
+api.restorePageHash();
+assert.strictEqual(global.__scroll, null, '没有 #锚点 时什么都不做');
 
-/* ---- 6. 切标签页仍然可用 ---- */
+/* ---- 3. 不生成任何页内导航 DOM，也不扫描 section 补 id ---- */
+const sec = new El('section');
+const h2 = new El('h2');
+h2.appendChild('账号');
+sec.appendChild(h2);
+root.appendChild(sec);
+api.restorePageHash();
+assert.strictEqual(sec.id, '', '不应给 section 生成锚点 id');
+assert.strictEqual(document.querySelector('.page-sidebar'), null, '不应创建侧栏 DOM');
+assert.strictEqual(document.querySelector('.page-nav'), null, '不应创建导航列表 DOM');
+assert.ok(!document.body.classList.contains('page-nav-on'), '不应启用页面级两栏');
+
+/* ---- 4. 切标签页仍然可用 ---- */
+const gateway = new El('div');
+gateway.className = 'main-page';
+gateway.id = 'pageGateway';
+root.appendChild(gateway);
 const btnGateway = new El('button'); btnGateway.id = 'btnNavGateway';
 root.appendChild(btnGateway);
-attach(pageEl('pageSettings', [sectionEl('甲'), sectionEl('乙'), sectionEl('丙')]));
+const pageSettings = new El('div');
+pageSettings.className = 'main-page';
+pageSettings.id = 'pageSettings';
+root.appendChild(pageSettings);
 api.switchMainTab('gateway');
 assert.ok(gateway.classList.contains('active'), '切到 gateway 应激活该页');
 

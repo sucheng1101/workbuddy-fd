@@ -409,7 +409,7 @@ a:hover{text-decoration:underline}
    才不会互相把对方放出来。作者样式本就压过 [hidden] 的 UA 样式，所以这里显式
    声明一次，免得以后给这两个选择器加 display 时又悄悄失效。 */
 .main-nav-btn[hidden],.main-page[hidden]{display:none!important}
-/* v0 工作台框架：全局导航固定为左侧工作台，页面内导航收敛为内容目录。 */
+/* v0 工作台框架：全局导航固定为左侧工作台。 */
 @media (min-width:861px){
   :root{--workspace-nav-width:224px;--workspace-header-height:72px}
   header{min-height:var(--workspace-header-height);padding-left:calc(var(--page-pad) + var(--workspace-nav-width));}
@@ -1088,7 +1088,6 @@ a:hover{text-decoration:underline}
     '启用价估算': 'Enable estimate',
     '启用自动切换': 'Enable auto-switch',
     '启用调度': 'Enable scheduler',
-    '回到顶部': 'Back to top',
     '回收失败': 'Recovery failed',
     '回收失败:': 'Recovery failed:',
     '回收失败：': 'Recovery failed:',
@@ -1165,7 +1164,6 @@ a:hover{text-decoration:underline}
     '尚未选择文件。': 'No file selected yet.',
     '就绪': 'Ready',
     '就绪 ·': 'Ready ·',
-    '展开本页导航': 'Expand section navigation',
     '展开查看每个模型当前生效的策略': 'Expand to see the policy currently in effect for each model',
     '展开逐条查看 / 手填 OpenRouter id': 'Expand to inspect entry by entry / enter an OpenRouter id by hand',
     '展示当前视图下官方对话大模型、上下文容量、推理/视觉能力及在售倍率': 'Official chat models in the current view, with their context size, reasoning/vision abilities and current rate',
@@ -1312,7 +1310,6 @@ a:hover{text-decoration:underline}
     '操作失败': 'Operation failed',
     '操作失败:': 'Operation failed:',
     '支持查看各账号的总消耗及调用的每个具体模型细分占比': 'Shows the total usage of each account and the breakdown per model it called',
-    '收起本页导航': 'Collapse section navigation',
     '数据看板': 'Analytics',
     '整点排程': 'Scheduled hourly',
     '文件不是合法 JSON': 'The file is not valid JSON',
@@ -1419,8 +1416,6 @@ a:hover{text-decoration:underline}
     '本月请求数': 'Requests this month',
     '本机桌面客户端账号': 'Desktop client accounts on this machine',
     '本次请求实际使用的推理强度': 'The reasoning effort this request actually used',
-    '本页区块导航': 'Section navigation',
-    '本页导航': 'On this page',
     '机房': 'Datacenter',
     '权限不足时可以管理员身份运行网关再试一次。': 'If permissions are insufficient, run the gateway as administrator and try again.',
     '条': 'rows',
@@ -3644,8 +3639,6 @@ a:hover{text-decoration:underline}
       </div>
     </div>
 
-    <!-- 左侧导航由 initPageNav() 扫描本页的 section 自动生成，
-         增删区块无需同步改动这里。 -->
     <section>
       <h2>面板访问密码 <em id="setPwdState"></em></h2>
       <div style="font-size:12px;color:var(--dim);margin-bottom:12px">用于打开本看板。默认密码为 <b>admin</b>，建议立即修改。</div>
@@ -4061,7 +4054,6 @@ a:hover{text-decoration:underline}
       </div>
     </div>
 
-    <!-- 左侧导航由 initPageNav() 扫描本页的 section 自动生成，增删区块无需同步改动。 -->
     <section>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
         <div>
@@ -4527,8 +4519,7 @@ function updateUI(){
   if(vbCn) vbCn.style.display = !isIntlView ? "inline-block" : "none";
 
   // 区块标题上的出口标签：这几个区块的内容都按当前视图区域取（账号、禁用汇总、
-  // 最近请求、模型清单），标出来免得把国际版的数字看成全局的。用 <em> 承载：
-  // 侧栏导航由 h2 生成时会剥掉 <em>，所以标签不会串进导航项。
+  // 最近请求、模型清单），标出来免得把国际版的数字看成全局的。用 <em> 承载。
   const sectionRealm = isIntlView ? "（国际版）" : "（国内版）";
   ["disabledRealmTag", "recentRealmTag", "modelsRealmTag"].forEach(function(id){
     const el = document.getElementById(id);
@@ -7850,13 +7841,6 @@ async function refreshInner(gen){
   await bootPanel();
 })();
 
-/* 侧栏尽早建：区块是静态标记，现场生成不依赖任何接口。原来只在
-   switchMainTab() 里建，而它排在启动链的末端——/panel/status、/settings、
-   /realm 三趟串行往返，再加 Promise.all 里那批数据加载（含走上游的
-   /v1/models 与国内版成长任务）之后才轮到，所以刷新时左侧要先空一列、
-   过一会儿才补上。这里在 DOMContentLoaded 就建（head 里那段已按 ?tab=
-   与上次选择定好 .active），switchMainTab() 那次会因清单未变直接返回，
-   不会重建、也不会闪。 */
 /* ---- 页内分区视图（按钮式开关） ---- */
 function setSegActive(ids, activeId){
   ids.forEach(function(id){
@@ -7904,7 +7888,6 @@ function renderAccountKpis(){
 }
 
 document.addEventListener('DOMContentLoaded', function(){
-  initPageNav(document.querySelector('.main-page.active'));
   switchTaskSection('cn');
   switchAccountSection('list');
 });
@@ -8137,47 +8120,10 @@ async function startDashboard(){
   }
 }
 
-/* ---- 页面区块锚点 ----
-   页面内不再渲染区块导航（.page-sidebar/.page-nav）；这里只保留旧锚点兼容：
-   打开带 #锚点 的地址时仍能落到对应区块。锚点 id 继续由区块首个 h2 的文本
-   哈希得到（page-sec-<hash>），与区块顺序无关，历史书签长期可用。 */
-
-/* 参与导航的区块：页面内最外层的 section（嵌套的 section 属于父区块的内容，
-   不单独成项），自身没被 display:none 隐藏，且带 h2 标题。判据用 computed
-   display 而不是 offsetParent —— 后者在整页隐藏（切到其它标签页）时会把所有
-   区块都判成不可见，导航会整个空掉。 */
-function pageNavSections(page){
-  if(!page) return [];
-  return Array.from(page.querySelectorAll('section')).filter(function(sec){
-    if(getComputedStyle(sec).display === 'none') return false;
-    if(!sec.querySelector('h2')) return false;
-    for(let p = sec.parentElement; p && p !== page; p = p.parentElement){
-      if(p.tagName === 'SECTION') return false;
-    }
-    return true;
-  });
-}
-
-function pageNavLabel(section, index){
-  const h2 = section.querySelector('h2');
-  if(h2){
-    const clone = h2.cloneNode(true);
-    clone.querySelectorAll('em').forEach(el => el.remove());
-    const text = (clone.textContent || '').replace(/\s+/g, ' ').trim();
-    if(text) return text;
-  }
-  return '未命名区块 ' + (index + 1);
-}
-
-/* 由标题内容导出稳定 id：与区块顺序无关，链接可长期复用 */
-function pageNavAnchorId(label, taken){
-  let hash = 5381;
-  for(let i = 0; i < label.length; i++) hash = ((hash << 5) + hash + label.charCodeAt(i)) >>> 0;
-  const base = 'page-sec-' + hash.toString(36);
-  let id = base, n = 2;
-  while(taken.has(id)) id = base + '-' + (n++);
-  return id;
-}
+/* ---- 旧 hash 锚点兼容 ----
+   8789 已彻底移除页内区块导航：不再有页内侧栏、区块导航列表或内容包裹层，
+   也不再扫描 section 生成锚点。这里只保留最小兼容——打开带 #id 的地址时，如果
+   页面上确实存在这个 id，就滚到它；除此之外不生成任何页内导航 DOM。 */
 
 /* 锚点跳转要让开的距离：吸顶 header */
 function anchorHeaderOffset(){
@@ -8198,27 +8144,12 @@ function scrollToPageSection(id, smooth){
   } catch(e){}
 }
 
-/* 只给当前页参与导航的区块补上稳定锚点 id，不再创建任何侧栏/导航 DOM；
-   已有 id 的区块保持不动。 */
-function initPageNav(page){
-  if(!page) return;
-  const taken = new Set(Array.from(document.querySelectorAll('[id]')).map(function(el){ return el.id; }));
-  pageNavSections(page).forEach(function(section, i){
-    if(section.id){ taken.add(section.id); return; }
-    section.id = pageNavAnchorId(pageNavLabel(section, i), taken);
-    taken.add(section.id);
-  });
-}
-
-/* 带 #锚点 打开时直接落到对应区块（旧锚点兼容）。 */
-function restorePageNavHash(){
-  const page = document.querySelector('.main-page.active');
-  if(!page) return;
+/* 带 #锚点 打开时直接落到对应元素（旧书签兼容）；元素不存在时什么都不做。 */
+function restorePageHash(){
   const id = (window.location.hash || '').slice(1);
   if(!id) return;
-  // 被隐藏的区块不进导航，也不该作为锚点落点（否则会滚到一个不可见的位置）
-  const navigable = pageNavSections(page).some(function(s){ return s.id === id; });
-  if(navigable) scrollToPageSection(id, false);
+  if(!document.getElementById(id)) return;
+  scrollToPageSection(id, false);
 }
 
 // ==== 账号区折叠开始 ====
@@ -8394,7 +8325,7 @@ function pageVisibilityItem(row){
 }
 
 /* 重建只在清单变了的时候做：其余情况只同步勾选状态，免得每次 loadSettings 都把
-   焦点和滚动位置抖掉。指纹的写法与侧栏导航的 pageNavSignature 一致。 */
+   焦点和滚动位置抖掉。 */
 function renderPageVisibility(){
   const list = document.getElementById('setPagesList');
   if(!list) return;
@@ -8440,26 +8371,20 @@ async function togglePageVisibility(key){
 //
 // 三个账号区块始终是同一批 DOM 节点，只是挂在不同页下面：合并时挂到
 // #pageGateway 的锚点处（控制栏之后、最近请求之前，也就是拆分前的位置），
-// 拆分时挂回 #pageAccounts 的页头之后。挂在谁下面就归谁的侧栏——区块侧栏是
-// initPageNav() 现场扫描本页区块生成的，所以搬完不用另外维护导航。
+// 拆分时挂回 #pageAccounts 的页头之后。
 let _accountsSeparateTab = false;
 let _accountsSections = null;
 
 function accountsPageSections(){
-  // 区块可能已经被 initPageNav() 包进 .page-nav-body（页面内容整体包一层，
-  // grid 里才只剩「侧栏 + 内容」两项），所以页面 div 与那层包裹都要找一遍。
+  // 页内导航已移除，区块就是账号页 div 的直接子节点。
   // 只在拿到非空结果时才记住：搬走之后账号页里就只剩页头了，那时再找也找不回来。
   if(_accountsSections && _accountsSections.length) return _accountsSections;
   const page = document.getElementById('pageAccounts');
   if(!page) return [];
-  const scopes = [page];
-  Array.from(page.children).forEach(el => {
-    if(el.classList && el.classList.contains('page-nav-body')) scopes.push(el);
-  });
   const found = [];
-  scopes.forEach(scope => Array.from(scope.children).forEach(el => {
+  Array.from(page.children).forEach(el => {
     if(el.tagName === 'SECTION' && found.indexOf(el) === -1) found.push(el);
-  }));
+  });
   if(found.length) _accountsSections = found;
   return found;
 }
@@ -8468,10 +8393,8 @@ function accountsSeparateTab(){
   return _accountsSeparateTab;
 }
 
-// 插到锚点前面——插在锚点**所在的那个容器**里，而不是插到页面 div 上：
-// 锚点被 .page-nav-body 包起来之后就不再是页面 div 的直接子节点了，直接对页面
-// div 调 insertBefore 会抛 NotFoundError（而 loadSettings 的 try/catch 会把它
-// 吞掉，表现成「开关没反应」这种最难查的样子）。
+// 插到锚点**所在的那个容器**里，而不是直接插到页面 div 上：两个锚点由页面
+// 标记提供，插在锚点前面即可。
 function insertBeforeAnchor(sections, anchor){
   const host = anchor && anchor.parentNode;
   if(!host || !sections.length) return false;
@@ -8519,7 +8442,7 @@ async function saveAccountsSeparateTab(btn){
   try {
     await postJSON('/settings/save', {accounts_separate_tab: value});
     applyAccountsTabLayout(value);
-    // 布局换了，导航、侧栏与当前页都要按新布局重算一遍；正停在「账号」页而
+    // 布局换了，当前页与区块归属都要按新布局重算一遍；正停在「账号」页而
     // 刚关掉开关时，switchMainTab 会把这一页退回「网关与账号」。
     switchMainTab(currentMainTab);
     toast(value ? '已开启：账号独立成一个页签' : '已关闭：账号与网关回到同一页');
@@ -10108,8 +10031,6 @@ function switchMainTab(tab){
     const on = (name === tab);
     btn.classList.toggle('active', on);
     page.classList.toggle('active', on);
-    // 每个页面各自按自己的区块重建侧栏；非当前页的区块变化在切过来时补上
-    if(on) initPageNav(page);
   });
   if(tab === 'tasks'){ loadGrowthTasks(); }
   if(tab === 'accounts' || (!_accountsSeparateTab && tab === 'gateway')){ loadActivityBoard(); }
@@ -10122,7 +10043,7 @@ function switchMainTab(tab){
   } else {
     stopLogPolling();
   }
-  restorePageNavHash();
+  restorePageHash();
 }
 
 /* ---- 智能体一键配置模块 ----

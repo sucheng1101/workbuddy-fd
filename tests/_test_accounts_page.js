@@ -301,48 +301,36 @@ function check(label, ok, detail){
 
   // 2j. 开关：区块在两页之间搬家，页签名与「账号」页签的显隐跟着走。
   // 假 DOM 不把 HTML 解析成树（getElementById 是惰性建元素），所以这里按**运行时**
-  // 的真实结构自己搭最小场景——initPageNav() 会把页面内容整体包进 .page-nav-body，
-  // 两个锚点因此都不是页面 div 的直接子节点。踩过的坑：直接对页面 div 调
-  // insertBefore 会抛 NotFoundError，而 loadSettings 的 try/catch 把它吞掉，
-  // 现场表现只是「开关点了一点反应都没有」。
+  // 的真实结构自己搭最小场景——页内导航已移除，区块与两个锚点都是页面 div 的
+  // 直接子节点。
   const pageGateway = el('pageGateway');
   const pageAccounts = el('pageAccounts');
   const kids = node => Array.from(node.children);
-  const bodyOf = node => kids(node).find(n => n.classList && n.classList.contains('page-nav-body'));
 
-  const accountsBody = document.createElement('div');
-  accountsBody.classList.add('page-nav-body');
-  pageAccounts.appendChild(accountsBody);
-  const accountsHeader = document.createElement('div');
-  accountsBody.appendChild(accountsHeader);
+  pageAccounts.appendChild(document.createElement('div'));
   const home = el('accountsHomeAnchor');
-  accountsBody.appendChild(home);
+  pageAccounts.appendChild(home);
   const moved = [0, 1, 2].map(() => document.createElement('section'));
-  moved.forEach(s => accountsBody.appendChild(s));
+  moved.forEach(s => pageAccounts.appendChild(s));
 
-  const gatewayBody = document.createElement('div');
-  gatewayBody.classList.add('page-nav-body');
-  pageGateway.appendChild(gatewayBody);
   const anchor = el('accountsSectionsAnchor');
-  gatewayBody.appendChild(anchor);
+  pageGateway.appendChild(anchor);
 
-  const sectionsOfAccounts = () => {
-    const body = bodyOf(pageAccounts);
-    return body ? kids(body).filter(n => n.tagName === 'SECTION') : [];
-  };
+  const sectionsOfAccounts = () =>
+    kids(pageAccounts).filter(n => n.tagName === 'SECTION');
 
-  check('场景就位：账号页（含包裹层）里有三个区块', sectionsOfAccounts().length === 3,
+  check('场景就位：账号页里有三个区块', sectionsOfAccounts().length === 3,
     String(sectionsOfAccounts().length));
-  check('合并锚点不在页面 div 直下，而在 .page-nav-body 里',
-    kids(pageGateway).indexOf(anchor) === -1 && kids(gatewayBody).indexOf(anchor) >= 0);
+  check('两个锚点都在页面 div 直下',
+    kids(pageGateway).indexOf(anchor) >= 0 && kids(pageAccounts).indexOf(home) >= 0);
 
   api.applyAccountsTabLayout(false);
   check('合并后账号页不再有区块', sectionsOfAccounts().length === 0,
     String(sectionsOfAccounts().length));
-  check('合并后三个区块都挂在网关页的包裹层里',
-    moved.every(s => kids(gatewayBody).includes(s)));
+  check('合并后三个区块都挂在网关页里',
+    moved.every(s => kids(pageGateway).includes(s)));
   check('合并后区块排在锚点之前',
-    moved.every(s => kids(gatewayBody).indexOf(s) < kids(gatewayBody).indexOf(anchor)));
+    moved.every(s => kids(pageGateway).indexOf(s) < kids(pageGateway).indexOf(anchor)));
   check('合并后「账号」页签被藏起来', el('btnNavAccounts').style.display === 'none',
     el('btnNavAccounts').style.display);
   check('合并后网关页签改名「网关与账号」', el('navGatewayLabel').textContent === '网关与账号',
@@ -352,7 +340,7 @@ function check(label, ok, detail){
   // 再调一次必须还是同一个结果：每次进设置页 loadSettings 都会调
   api.applyAccountsTabLayout(false);
   check('重复应用合并是幂等的',
-    moved.every(s => kids(gatewayBody).includes(s)) && sectionsOfAccounts().length === 0);
+    moved.every(s => kids(pageGateway).includes(s)) && sectionsOfAccounts().length === 0);
 
   api.applyAccountsTabLayout(true);
   check('拆开后三个区块回到账号页', sectionsOfAccounts().length === 3,
