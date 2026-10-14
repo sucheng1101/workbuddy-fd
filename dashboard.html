@@ -454,6 +454,133 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   button.page-nav-top{width:auto;flex:0 0 auto;margin-bottom:0;padding:7px 12px;border-radius:999px;
     white-space:nowrap}
 }
+/* v0 工作台框架：全局导航固定为左侧工作台，页面内导航收敛为内容目录。 */
+@media (min-width:861px){
+  :root{--workspace-nav-width:224px;--workspace-header-height:72px}
+  header{min-height:var(--workspace-header-height);padding-left:calc(var(--page-pad) + var(--workspace-nav-width));}
+  header .header-left{gap:14px}
+  .main-nav{
+    position:fixed;inset:0 auto 0 0;width:var(--workspace-nav-width);height:100vh;
+    z-index:40;display:flex;flex-direction:column;align-items:stretch;gap:4px;
+    padding:18px 14px 16px;background:var(--panel);border:0;border-right:1px solid var(--line);
+    border-radius:0;box-shadow:var(--shadow-md);overflow-y:auto;
+  }
+  .main-nav-brand{display:flex;align-items:center;gap:9px;padding:7px 10px 18px;
+    margin-bottom:8px;border-bottom:1px solid var(--line);font-size:14px;font-weight:700;color:var(--fg)}
+  .main-nav-collapse{margin-left:auto;width:24px;height:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+    border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--dim);font-size:17px;line-height:1}
+  .main-nav-collapse:hover{color:var(--fg);border-color:var(--line-hover);background:var(--panel)}
+  .main-nav-brand-dot,.main-nav-status-dot{width:8px;height:8px;border-radius:50%;background:var(--accent2);
+    box-shadow:0 0 0 3px var(--accent2-soft);flex:0 0 auto}
+  .main-nav-group-label{padding:14px 10px 5px;color:var(--dim-light);font-size:10px;font-weight:700;
+    letter-spacing:.08em;text-transform:uppercase}
+  .main-nav-btn{position:relative;justify-content:flex-start;width:100%;min-height:40px;padding:9px 12px 9px 40px;
+    border-radius:9px;font-size:13px;font-weight:550;text-align:left}
+  .main-nav-btn::before{content:' ';position:absolute;left:14px;top:50%;width:16px;height:16px;transform:translateY(-50%);
+    border:1.5px solid currentColor;border-radius:5px;opacity:.58}
+  #btnNavGateway::before{border-radius:50%}
+  #btnNavAccounts::before{border-radius:4px}
+  #btnNavTasks::before{border-radius:3px;transform:translateY(-50%) rotate(45deg);width:12px;height:12px}
+  #btnNavAnalytics::before{border-radius:3px;border-top-width:4px}
+  #btnNavAgents::before{border-radius:50%;box-shadow:0 0 0 3px transparent,6px 0 0 -2px currentColor}
+  #btnNavSettings::before{border-radius:50%;box-shadow:0 0 0 3px var(--panel),0 0 0 4.5px currentColor}
+  #btnNavLogs::before{border-radius:2px;border-left-width:4px}
+  .main-nav-btn.active{background:var(--accent-soft);border-color:rgba(37,99,235,.22);color:var(--accent);box-shadow:none}
+  .main-nav-btn.active::before{opacity:1}
+  .main-nav-footer{margin-top:auto;padding:13px 10px 2px;border-top:1px solid var(--line);display:grid;gap:5px;color:var(--dim);font-size:11px}
+  .main-nav-footer-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim-light)}
+  .main-nav-footer strong{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg);font-weight:600}
+  .main-nav-footer small{font-size:10px;color:var(--dim-light)}
+  body.workspace-nav-collapsed{--workspace-nav-width:72px}
+  body.workspace-nav-collapsed .main-nav{padding-left:10px;padding-right:10px}
+  body.workspace-nav-collapsed .main-nav-brand{justify-content:center;padding-left:0;padding-right:0}
+  body.workspace-nav-collapsed .main-nav-brand>span:not(.main-nav-brand-dot),
+  body.workspace-nav-collapsed .main-nav-group-label,
+  body.workspace-nav-collapsed .main-nav-footer{display:none}
+  body.workspace-nav-collapsed .main-nav-collapse{margin-left:0}
+  body.workspace-nav-collapsed .main-nav-btn{font-size:0;padding-left:0;padding-right:0;justify-content:center}
+  body.workspace-nav-collapsed .main-nav-btn::before{left:50%;transform:translate(-50%,-50%)}
+  body.workspace-nav-collapsed #btnNavTasks::before{transform:translate(-50%,-50%) rotate(45deg)}
+  main{margin-left:var(--workspace-nav-width);padding-top:26px}
+  .main-page.page-nav-on.active{display:block}
+  .main-page.page-nav-on > .page-sidebar{position:sticky;top:calc(var(--workspace-header-height) + 12px);z-index:6;
+    width:100%;max-height:none;display:flex;align-items:center;gap:12px;margin-bottom:18px;padding:8px 10px;
+    border-radius:12px;background:var(--header-bg);backdrop-filter:blur(10px);box-shadow:var(--shadow-sm)}
+  .main-page.page-nav-on > .page-sidebar .page-sidebar-head{flex:0 0 auto;min-width:118px}
+  .page-sidebar-title{padding:5px 8px;font-size:10px;letter-spacing:.08em}
+  button.page-nav-top{width:auto;margin:0;padding:7px 10px;border-radius:8px}
+  .page-nav{flex:1;min-width:0;display:flex;flex-direction:row;gap:6px;overflow-x:auto;padding:1px 0 2px}
+  .page-nav-item{white-space:nowrap;padding:7px 11px;border-radius:8px}
+  .page-nav-item.active{background:var(--accent-soft);border-color:rgba(37,99,235,.2);color:var(--accent)}
+}
+@media (max-width:860px){
+  .main-nav-brand,.main-nav-group-label,.main-nav-footer{display:none}
+  .main-nav-collapse{display:none}
+  .main-nav-btn::before{display:none}
+  .main-nav-btn{justify-content:center}
+}
+/* v0.2 管理工作台层：统一设置区块、状态标签与窄屏边界。 */
+#pageSettings .page-nav-body{min-width:0}
+#pageSettings section{position:relative;overflow:hidden}
+#pageSettings section::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--line);opacity:.9}
+#pageSettings section:focus-within::before{background:var(--accent)}
+#pageSettings section h2{display:flex;align-items:center;gap:6px;min-height:24px;padding-right:120px;color:var(--fg);font-size:14px;letter-spacing:-.05px;text-transform:none}
+#pageSettings section h2::after{content:'配置项';margin-left:auto;color:var(--dim-light);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+#pageSettings section h2 em{font-size:11px}
+#pageSettings section > div:first-child > div:first-child > div,
+#pageSettings section > div:first-child > div:first-child + div{line-height:1.65}
+#pageSettings section > div:first-child{gap:16px}
+#pageSettings section button{white-space:nowrap}
+#pageSettings .table-wrap{border:1px solid var(--line);background:var(--panel2)}
+#pageSettings .table-wrap table{margin:0}
+#pageSettings .limit-name{min-width:220px}
+#pageSettings .page-sidebar{align-self:start}
+@media (min-width:861px){
+  #pageSettings .page-nav-body{display:grid;grid-template-columns:minmax(0,1fr);gap:0}
+  #pageSettings section{scroll-margin-top:108px}
+}
+@media (max-width:860px){
+  html,body{overflow-x:hidden}
+  main,.main-page,.page-nav-body{min-width:0;max-width:100%}
+  .main-page.page-nav-on > .page-nav-body{width:100%}
+  #pageSettings section{padding:14px 14px;margin-bottom:14px}
+  #pageSettings section h2{padding-right:0;align-items:flex-start;flex-wrap:wrap;line-height:1.4}
+  #pageSettings section h2::after{width:100%;margin:2px 0 0;color:var(--dim-light)}
+  #pageSettings .table-wrap{max-width:100%;overflow-x:auto}
+  #pageSettings .table-wrap table{min-width:620px}
+  #pageGateway .realm-card{min-width:0}
+  #pageGateway section,.main-page section{max-width:100%;overflow-x:hidden}
+}
+/* v0.3 工作台统一视觉层：页面头、区块标题、操作区与状态标签在所有主页面共用
+   同一套层级与间距；窄屏优先保证不横向溢出、按钮可换行。 */
+.main-page{min-width:0}
+.main-page > .page-head,
+.main-page .page-nav-body > .page-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  padding:16px 20px;margin-bottom:18px;border:1px solid var(--line);border-radius:14px;
+  background:linear-gradient(135deg,var(--panel),var(--panel2));box-shadow:var(--shadow-sm)
+}
+.page-head-main{flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:4px}
+.page-head h2{margin:0;font-size:17px;font-weight:700;color:var(--fg);letter-spacing:-.25px;line-height:1.35}
+.page-head .page-head-desc{margin:0;max-width:860px;font-size:12px;color:var(--dim);line-height:1.7}
+.page-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* 区块标题：与页面头同一层级——不再是全大写小字，各页读起来是一套工作台 */
+.main-page section h2{display:flex;align-items:center;gap:6px;min-height:24px;
+  color:var(--fg);font-size:14px;font-weight:700;letter-spacing:-.05px;line-height:1.4;text-transform:none}
+.main-page section h2 em{font-size:11px;color:var(--dim)}
+/* 区块首行：标题/说明与右侧操作区允许换行，窄屏不把按钮顶出卡片 */
+.main-page section > div:first-child{min-width:0}
+.main-page .table-wrap{max-width:100%}
+@media (max-width:860px){
+  .main-page > .page-head,
+  .main-page .page-nav-body > .page-head{padding:14px 14px;margin-bottom:14px;gap:10px}
+  .page-head-main{flex-basis:100%}
+  .page-head h2{font-size:16px}
+  .main-page section{min-width:0}
+}
+@media (min-width:641px) and (max-width:1100px){
+  #analyticsKpiCards{grid-auto-flow:row;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+}
 .range-btn{background:transparent;border:none;color:var(--dim);padding:4px 12px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease}
 .range-btn:hover{color:var(--fg)}
 .range-btn.active{background:var(--accent);color:#fff;font-weight:600;box-shadow:var(--shadow-sm)}
@@ -2793,10 +2920,17 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 <header>
   <div class="header-left" style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
     <h1><span class="dot" id="statusDot"></span>WorkBuddy 网关</h1>
-    <nav class="main-nav">
+    <nav class="main-nav" aria-label="主导航">
+      <div class="main-nav-brand">
+        <span class="main-nav-brand-dot"></span>
+        <span>WorkBuddy 控制台</span>
+        <button type="button" class="main-nav-collapse" id="mainNavCollapse" onclick="toggleWorkspaceNav(event)" aria-label="收起主导航" title="收起主导航">‹</button>
+      </div>
+      <div class="main-nav-group-label">工作台</div>
       <button class="main-nav-btn active" id="btnNavGateway" onclick="switchMainTab('gateway')">
         <span id="navGatewayLabel">网关</span>
       </button>
+      <div class="main-nav-group-label">运营管理</div>
       <button class="main-nav-btn" id="btnNavAccounts" onclick="switchMainTab('accounts')">
         账号
       </button>
@@ -2806,6 +2940,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <button class="main-nav-btn" id="btnNavAnalytics" onclick="switchMainTab('analytics')">
         数据看板
       </button>
+      <div class="main-nav-group-label">配置与维护</div>
       <button class="main-nav-btn" id="btnNavAgents" onclick="switchMainTab('agents')">
         智能体配置
       </button>
@@ -2815,6 +2950,11 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <button class="main-nav-btn" id="btnNavLogs" onclick="switchMainTab('logs')">
         运行日志
       </button>
+      <div class="main-nav-footer">
+        <span class="main-nav-footer-label">运行状态</span>
+        <strong><span class="main-nav-status-dot"></span>服务在线</strong>
+        <small>本地管理工作台</small>
+      </div>
     </nav>
     <a class="gh-link" href="https://github.com/ardeyouxipianyi/workbuddy2api-hub" target="_blank" rel="noopener noreferrer"
        title="查看 GitHub 项目仓库" aria-label="GitHub 项目仓库">
@@ -2881,9 +3021,11 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 <main>
   <div id="pageGateway" class="main-page">
   <!-- 页面头部：标题 + 一行说明，与其它页面的头部结构保持一致 -->
-  <div style="margin-bottom:16px">
-    <h2 id="gatewayPageTitle" style="margin:0;font-size:16px;color:var(--fg)">网关与账号</h2>
-    <div id="gatewayPageDesc" style="font-size:12px;color:var(--dim);margin-top:4px">管理账号池与代理出口，查看当日调用量、估算花费、成功率、最近请求与网关模型清单。</div>
+  <div class="page-head">
+    <div class="page-head-main">
+      <h2 id="gatewayPageTitle">网关与账号</h2>
+      <div id="gatewayPageDesc" class="page-head-desc">管理账号池与代理出口，查看当日调用量、估算花费、成功率、最近请求与网关模型清单。</div>
+    </div>
   </div>
   <!-- 版本中枢控制栏 (三列等高对齐网格) -->
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:18px">
@@ -3017,9 +3159,11 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   
   <div id="pageAccounts" class="main-page">
   <!-- 页面头部：标题 + 一行说明，与其它页面的头部结构保持一致 -->
-  <div style="margin-bottom:16px">
-    <h2 style="margin:0;font-size:16px;color:var(--fg)">账号</h2>
-    <div style="font-size:12px;color:var(--dim);margin-top:4px">管理账号池：添加/导入/导出、启用停用、凭证与积分刷新、代理出口绑定，以及签到与每日活跃记录。</div>
+  <div class="page-head">
+    <div class="page-head-main">
+      <h2>账号</h2>
+      <div class="page-head-desc">管理账号池：添加/导入/导出、启用停用、凭证与积分刷新、代理出口绑定，以及签到与每日活跃记录。</div>
+    </div>
   </div>
   <!-- 拆分模式下三个区块的落点（页头之后、原顺序）；合并模式搬走之后这里就空着 -->
   <span id="accountsHomeAnchor" hidden></span>
@@ -3116,6 +3260,13 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   </div><!-- /pageAccounts -->
   
   <div id="pageTasks" class="main-page">
+  <!-- 页面头部：标题 + 一行说明，与其它页面的头部结构保持一致 -->
+  <div class="page-head">
+    <div class="page-head-main">
+      <h2>任务与福利</h2>
+      <div class="page-head-desc">国际版每日活跃与国内版成长任务：批量接取、事件上报领奖、猫猫日常与连登管家，以及签到与打卡状态。</div>
+    </div>
+  </div>
   <!-- 国际版每日活跃福利 -->
   <section id="sectionIntlTasks" style="margin-bottom:24px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
@@ -3214,13 +3365,12 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
        挤到下面，所以账号列表与「当前禁用总览」单独成一个菜单，签到/活跃记录也
        放在这里——它回答的正是「这个账号昨天到底签成了没有」。 -->
   <div id="pageAnalytics" class="main-page">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px">
-      <div>
-        <h2 style="margin:0;font-size:16px;color:var(--fg);display:flex;align-items:center;gap:8px">
-          Token 消耗与推理指标透视
-        </h2>
-        <div style="font-size:12px;color:var(--dim);margin-top:4px">全维度统计输入/输出/推理 Token、缓存节省效益与各账号各模型用量</div>
+    <div class="page-head">
+      <div class="page-head-main">
+        <h2>Token 消耗与推理指标透视</h2>
+        <div class="page-head-desc">全维度统计输入/输出/推理 Token、缓存节省效益与各账号各模型用量</div>
       </div>
+      <div class="page-head-actions">
       <div style="display:flex;gap:4px;background:var(--panel2);padding:3px;border-radius:8px;border:1px solid var(--line)">
         <button id="btnRangeToday" class="range-btn active" onclick="setAnalyticsRange('today')">今日数据 (Today)</button>
         <button id="btnRangeWeek" class="range-btn" onclick="setAnalyticsRange('week')">本周 (This Week)</button>
@@ -3235,6 +3385,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
                  onchange="onRangeCustomChange()">
           <span style="font-size:11px">留空表示不限</span>
         </span>
+      </div>
       </div>
     </div>
 
@@ -3473,9 +3624,11 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 
 
   <div id="pageSettings" class="main-page">
-    <div style="margin-bottom:16px">
-      <h2 style="margin:0;font-size:16px;color:var(--fg)">网关设置</h2>
-      <div style="font-size:12px;color:var(--dim);margin-top:4px">面板密码与界面语言、API Key 与出口绑定、代理槽与限额、价格估算、出站身份与本地网络工具。</div>
+    <div class="page-head">
+      <div class="page-head-main">
+        <h2>网关设置</h2>
+        <div class="page-head-desc">面板密码与界面语言、API Key 与出口绑定、代理槽与限额、价格估算、出站身份与本地网络工具。</div>
+      </div>
     </div>
 
     <!-- 左侧导航由 initPageNav() 扫描本页的 section 自动生成，
@@ -3888,9 +4041,11 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   </div>
 
   <div id="pageAgents" class="main-page">
-    <div style="margin-bottom:16px">
-      <h2 style="margin:0;font-size:16px;color:var(--fg)">智能体配置</h2>
-      <div style="font-size:12px;color:var(--dim);margin-top:4px">检测本机已安装的 AI 编程客户端，一键把它们的配置指向本网关；原始文件会先备份，随时可一键还原。</div>
+    <div class="page-head">
+      <div class="page-head-main">
+        <h2>智能体配置</h2>
+        <div class="page-head-desc">检测本机已安装的 AI 编程客户端，一键把它们的配置指向本网关；原始文件会先备份，随时可一键还原。</div>
+      </div>
     </div>
 
     <!-- 左侧导航由 initPageNav() 扫描本页的 section 自动生成，增删区块无需同步改动。 -->
@@ -3956,12 +4111,12 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   </div>
 
   <div id="pageLogs" class="main-page">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px">
-      <div>
-        <h2 style="margin:0;font-size:16px;color:var(--fg)">网关运行日志</h2>
-        <div style="font-size:12px;color:var(--dim);margin-top:4px">实时捕获反向代理请求、流式转发、调度巡检、任务打卡与异常告警 (内存保留最新 2000 条)</div>
+    <div class="page-head">
+      <div class="page-head-main">
+        <h2>网关运行日志</h2>
+        <div class="page-head-desc">实时捕获反向代理请求、流式转发、调度巡检、任务打卡与异常告警 (内存保留最新 2000 条)</div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div class="page-head-actions">
         <span id="logStatsBadge" style="font-size:12px;color:var(--dim);margin-right:6px">加载中...</span>
         <button class="sec mini" onclick="fetchNewLogs(true)" title="立即拉取最新日志">刷新</button>
         <button class="sec mini" id="btnToggleLogAuto" onclick="toggleLogAuto()" style="color:var(--accent2);font-weight:600">实时监听中</button>
@@ -9996,6 +10151,27 @@ async function loadAgentsAvailability(){
     }
   } catch(e){}
 }
+
+function toggleWorkspaceNav(event){
+  if(event) event.stopPropagation();
+  const collapsed = document.body.classList.toggle('workspace-nav-collapsed');
+  try { localStorage.setItem('wb-workspace-nav-collapsed', collapsed ? '1' : '0'); } catch(e){}
+  const btn = document.getElementById('mainNavCollapse');
+  if(btn){
+    btn.textContent = collapsed ? '›' : '‹';
+    btn.title = collapsed ? '展开主导航' : '收起主导航';
+    btn.setAttribute('aria-label', btn.title);
+  }
+}
+(function restoreWorkspaceNav(){
+  try {
+    if(localStorage.getItem('wb-workspace-nav-collapsed') === '1'){
+      document.body.classList.add('workspace-nav-collapsed');
+      const btn = document.getElementById('mainNavCollapse');
+      if(btn){ btn.textContent = '›'; btn.title = '展开主导航'; btn.setAttribute('aria-label', btn.title); }
+    }
+  } catch(e){}
+})();
 
 function switchMainTab(tab){
   // 入口被撤掉后（?tab=agents 的书签、上次停留的页签）退回网关页
