@@ -313,6 +313,10 @@ a:hover{text-decoration:underline}
 .main-nav-btn{background:transparent;border:1px solid transparent;color:var(--dim);padding:6px 14px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s ease}
 .main-nav-btn:hover{color:var(--fg);background:var(--panel)}
 .main-nav-btn.active{background:var(--panel);color:var(--fg);border-color:var(--line);box-shadow:var(--shadow-sm);font-weight:600}
+/* 全局工作台导航在窄屏收成抽屉：汉堡按钮与背景遮罩只在窄屏存在，宽屏默认隐藏，
+   由下面的 @media (max-width:860px) 放出。 */
+.main-nav-toggle{display:none}
+.nav-scrim{display:none}
 /* 项目仓库入口：与顶部导航同行，但不作为一个 Tab 标签。 */
 .gh-link{display:inline-flex;align-items:center;justify-content:center;
   width:34px;height:32px;border-radius:8px;border:1px solid var(--line);
@@ -513,11 +517,45 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   .page-nav-item{white-space:nowrap;padding:7px 11px;border-radius:8px}
   .page-nav-item.active{background:var(--accent-soft);border-color:rgba(37,99,235,.2);color:var(--accent)}
 }
+/* 窄屏：全局工作台导航收成从左侧滑出的抽屉（position:fixed + transform），
+   由 header 里的汉堡按钮开合。它不再挤进 header 变成一排顶部标签，视觉上与
+   页面内「本页导航」（横向胶囊行）明确区分，两套导航各占一级。 */
 @media (max-width:860px){
-  .main-nav-brand,.main-nav-group-label,.main-nav-footer{display:none}
-  .main-nav-collapse{display:none}
-  .main-nav-btn::before{display:none}
-  .main-nav-btn{justify-content:center}
+  .main-nav{
+    position:fixed;inset:0 auto 0 0;width:min(272px,84vw);height:100vh;
+    z-index:70;display:flex;flex-direction:column;align-items:stretch;gap:4px;
+    padding:18px 14px 16px;background:var(--panel);border:0;border-right:1px solid var(--line);
+    border-radius:0;box-shadow:var(--shadow-md);overflow-y:auto;
+    transform:translateX(-100%);visibility:hidden;
+    transition:transform .22s ease,visibility .22s ease;
+  }
+  body.workspace-nav-open .main-nav{transform:translateX(0);visibility:visible}
+  .nav-scrim{display:block;position:fixed;inset:0;z-index:65;background:rgba(15,23,42,.5);
+    opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s ease}
+  body.workspace-nav-open .nav-scrim{opacity:1;visibility:visible}
+  .main-nav-toggle{display:inline-flex;align-items:center;justify-content:center;
+    width:36px;height:36px;padding:0;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel);color:var(--dim);box-shadow:var(--shadow-sm);flex:0 0 auto}
+  .main-nav-toggle:hover{color:var(--fg);border-color:var(--line-hover);background:var(--panel2)}
+  .main-nav-toggle svg{width:19px;height:19px;display:block}
+  .main-nav-brand{display:flex;align-items:center;gap:9px;padding:7px 10px 18px;
+    margin-bottom:8px;border-bottom:1px solid var(--line);font-size:14px;font-weight:700;color:var(--fg)}
+  .main-nav-collapse{margin-left:auto;width:26px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+    border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--dim);font-size:16px;line-height:1}
+  .main-nav-collapse:hover{color:var(--fg);border-color:var(--line-hover);background:var(--panel)}
+  .main-nav-brand-dot,.main-nav-status-dot{width:8px;height:8px;border-radius:50%;background:var(--accent2);
+    box-shadow:0 0 0 3px var(--accent2-soft);flex:0 0 auto}
+  .main-nav-group-label{display:block;padding:14px 10px 5px;color:var(--dim-light);font-size:10px;font-weight:700;
+    letter-spacing:.08em;text-transform:uppercase}
+  .main-nav-btn{position:relative;justify-content:flex-start;width:100%;min-height:44px;padding:11px 12px;
+    border-radius:9px;font-size:14px;font-weight:600;text-align:left}
+  .main-nav-btn.active{background:var(--accent-soft);border-color:rgba(37,99,235,.22);color:var(--accent);box-shadow:none}
+  .main-nav-footer{display:grid;margin-top:auto;padding:13px 10px 2px;border-top:1px solid var(--line);gap:5px;color:var(--dim);font-size:11px}
+  .main-nav-footer-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim-light)}
+  .main-nav-footer strong{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg);font-weight:600}
+  .main-nav-footer small{font-size:10px;color:var(--dim-light)}
+  /* 抽屉打开时锁住背景滚动，避免既滑菜单又滑页面 */
+  body.workspace-nav-open{overflow:hidden}
 }
 /* v0.2 管理工作台层：统一设置区块、状态标签与窄屏边界。 */
 #pageSettings .page-nav-body{min-width:0}
@@ -619,14 +657,9 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   h1 span{font-size:11px;margin-left:6px}
   .gh-link{width:36px;height:36px;flex-shrink:0}
   .theme-btn{width:36px;height:36px}
-  /* 窄屏下主 Tab 一排摆不下就横向滚动，而不是把行内容顶出导航条：5 个 Tab 的
-     min-content 和已经超过这段留给导航的宽度（右侧按钮组占了 84px），继续用
-     flex:1 平分只会把按钮压到 min-content 并溢出（issue #246 实测 320px 溢出
-     59px、414px 起就不等宽）。做法与 .page-nav 在 ≤860px 时一致：按钮保持
-     可读宽度，摆不下就滚动；放得下时仍然平分整行。 */
-  .main-nav{display:flex;width:100%;gap:2px;padding:3px;order:3;overflow-x:auto;
-    -webkit-overflow-scrolling:touch;scrollbar-width:thin}
-  .main-nav-btn{flex:1;justify-content:center;padding:8px 2px;font-size:12px;min-height:36px;white-space:nowrap}
+  /* 顶部主导航在窄屏是左侧抽屉（见 ≤860px 的 .main-nav 规则），这里不再把它
+     拉成一排顶部横向标签，header 只保留标题、汉堡按钮与右侧操作组。 */
+  .main-nav-toggle{width:38px;height:38px}
   .meta{width:100%;text-align:left;font-size:11px;line-height:1.5;order:4}
   .meta .meta-secondary{display:none}
   /* Table → card */
@@ -704,9 +737,6 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 /* ===== Small phone: ≤400px ===== */
 @media (max-width: 400px){
   h1{font-size:14px}
-  /* 小屏再挤一点：5 个 Tab 在 375px（iPhone SE/mini 一档）正好塞进一行 */
-  .main-nav{gap:1px;padding:2px}
-  .main-nav-btn{font-size:11px;padding:7px 2px}
   #cards{grid-template-columns:1fr 1fr;gap:6px}
   #cards .card .v{font-size:16px}
   table.data-cards tr{padding:10px}
@@ -2917,45 +2947,56 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 </script>
 </head>
 <body>
+<!-- 全局工作台导航：作为 body 直接子级，而不是塞在 sticky header 里。这样
+     ≥861px 时它能独立固定到视口左侧，≤860px 时又能作为抽屉（z-index 高于 header
+     与遮罩）滑出，不会被 header 的层叠上下文或 backdrop-filter 困住。 -->
+<nav class="main-nav" id="mainNav" aria-label="主导航">
+  <div class="main-nav-brand">
+    <span class="main-nav-brand-dot"></span>
+    <span>WorkBuddy 控制台</span>
+    <button type="button" class="main-nav-collapse" id="mainNavCollapse" onclick="toggleWorkspaceNav(event)" aria-label="收起主导航" title="收起主导航">‹</button>
+  </div>
+  <div class="main-nav-group-label">工作台</div>
+  <button class="main-nav-btn active" id="btnNavGateway" onclick="switchMainTab('gateway')">
+    <span id="navGatewayLabel">网关</span>
+  </button>
+  <div class="main-nav-group-label">运营管理</div>
+  <button class="main-nav-btn" id="btnNavAccounts" onclick="switchMainTab('accounts')">
+    账号
+  </button>
+  <button class="main-nav-btn" id="btnNavTasks" onclick="switchMainTab('tasks')">
+    任务与福利
+  </button>
+  <button class="main-nav-btn" id="btnNavAnalytics" onclick="switchMainTab('analytics')">
+    数据看板
+  </button>
+  <div class="main-nav-group-label">配置与维护</div>
+  <button class="main-nav-btn" id="btnNavAgents" onclick="switchMainTab('agents')">
+    智能体配置
+  </button>
+  <button class="main-nav-btn" id="btnNavSettings" onclick="switchMainTab('settings')">
+    设置
+  </button>
+  <button class="main-nav-btn" id="btnNavLogs" onclick="switchMainTab('logs')">
+    运行日志
+  </button>
+  <div class="main-nav-footer">
+    <span class="main-nav-footer-label">运行状态</span>
+    <strong><span class="main-nav-status-dot"></span>服务在线</strong>
+    <small>本地管理工作台</small>
+  </div>
+</nav>
 <header>
   <div class="header-left" style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+    <button type="button" class="main-nav-toggle" id="mainNavToggle" onclick="toggleWorkspaceNavDrawer(event)"
+            aria-label="打开主导航" aria-controls="mainNav" aria-expanded="false" title="打开主导航">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <line x1="4" y1="7" x2="20" y2="7"></line>
+        <line x1="4" y1="12" x2="20" y2="12"></line>
+        <line x1="4" y1="17" x2="20" y2="17"></line>
+      </svg>
+    </button>
     <h1><span class="dot" id="statusDot"></span>WorkBuddy 网关</h1>
-    <nav class="main-nav" aria-label="主导航">
-      <div class="main-nav-brand">
-        <span class="main-nav-brand-dot"></span>
-        <span>WorkBuddy 控制台</span>
-        <button type="button" class="main-nav-collapse" id="mainNavCollapse" onclick="toggleWorkspaceNav(event)" aria-label="收起主导航" title="收起主导航">‹</button>
-      </div>
-      <div class="main-nav-group-label">工作台</div>
-      <button class="main-nav-btn active" id="btnNavGateway" onclick="switchMainTab('gateway')">
-        <span id="navGatewayLabel">网关</span>
-      </button>
-      <div class="main-nav-group-label">运营管理</div>
-      <button class="main-nav-btn" id="btnNavAccounts" onclick="switchMainTab('accounts')">
-        账号
-      </button>
-      <button class="main-nav-btn" id="btnNavTasks" onclick="switchMainTab('tasks')">
-        任务与福利
-      </button>
-      <button class="main-nav-btn" id="btnNavAnalytics" onclick="switchMainTab('analytics')">
-        数据看板
-      </button>
-      <div class="main-nav-group-label">配置与维护</div>
-      <button class="main-nav-btn" id="btnNavAgents" onclick="switchMainTab('agents')">
-        智能体配置
-      </button>
-      <button class="main-nav-btn" id="btnNavSettings" onclick="switchMainTab('settings')">
-        设置
-      </button>
-      <button class="main-nav-btn" id="btnNavLogs" onclick="switchMainTab('logs')">
-        运行日志
-      </button>
-      <div class="main-nav-footer">
-        <span class="main-nav-footer-label">运行状态</span>
-        <strong><span class="main-nav-status-dot"></span>服务在线</strong>
-        <small>本地管理工作台</small>
-      </div>
-    </nav>
     <a class="gh-link" href="https://github.com/ardeyouxipianyi/workbuddy2api-hub" target="_blank" rel="noopener noreferrer"
        title="查看 GitHub 项目仓库" aria-label="GitHub 项目仓库">
       <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -3001,6 +3042,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     </div>
   </div>
 </header>
+<div class="nav-scrim" id="navScrim" aria-hidden="true"></div>
 <div id="panelGate" style="position:fixed;inset:0;z-index:600;display:none;
      align-items:center;justify-content:center;padding:20px;background:var(--bg)">
   <div style="width:min(380px,100%);background:var(--panel);border:1px solid var(--line);
@@ -10152,8 +10194,33 @@ async function loadAgentsAvailability(){
   } catch(e){}
 }
 
+/* 全局工作台导航有两种窄屏/宽屏形态：≥861px 是左侧固定栏，用 mainNavCollapse
+   在整栏与细轨之间切换（偏好存 localStorage）；≤860px 是从左侧滑出的抽屉，用
+   header 里的汉堡按钮开合，遮罩点击、Escape、点任一导航项都关闭。 */
+var WORKSPACE_NAV_DRAWER_MQ = window.matchMedia ? window.matchMedia('(max-width:860px)') : null;
+function workspaceNavIsDrawer(){
+  return !!(WORKSPACE_NAV_DRAWER_MQ && WORKSPACE_NAV_DRAWER_MQ.matches);
+}
+function openWorkspaceNav(){
+  document.body.classList.add('workspace-nav-open');
+  const toggle = document.getElementById('mainNavToggle');
+  if(toggle) toggle.setAttribute('aria-expanded', 'true');
+}
+function closeWorkspaceNav(){
+  document.body.classList.remove('workspace-nav-open');
+  const toggle = document.getElementById('mainNavToggle');
+  if(toggle) toggle.setAttribute('aria-expanded', 'false');
+}
+function toggleWorkspaceNavDrawer(event){
+  if(event) event.stopPropagation();
+  if(document.body.classList.contains('workspace-nav-open')) closeWorkspaceNav();
+  else openWorkspaceNav();
+}
+
 function toggleWorkspaceNav(event){
   if(event) event.stopPropagation();
+  // 窄屏下这个按钮落在抽屉里，语义从「收起整栏」变成「关闭抽屉」。
+  if(workspaceNavIsDrawer()){ closeWorkspaceNav(); return; }
   const collapsed = document.body.classList.toggle('workspace-nav-collapsed');
   try { localStorage.setItem('wb-workspace-nav-collapsed', collapsed ? '1' : '0'); } catch(e){}
   const btn = document.getElementById('mainNavCollapse');
@@ -10163,6 +10230,28 @@ function toggleWorkspaceNav(event){
     btn.setAttribute('aria-label', btn.title);
   }
 }
+(function initWorkspaceNavDrawer(){
+  const toggle = document.getElementById('mainNavToggle');
+  const scrim = document.getElementById('navScrim');
+  const nav = document.querySelector('.main-nav');
+  if(toggle) toggle.addEventListener('click', toggleWorkspaceNavDrawer);
+  if(scrim) scrim.addEventListener('click', function(){ closeWorkspaceNav(); });
+  if(nav) nav.addEventListener('click', function(e){
+    const target = e.target;
+    if(target && target.closest && target.closest('.main-nav-btn')) closeWorkspaceNav();
+  });
+  document.addEventListener('keydown', function(e){
+    if((e.key === 'Escape' || e.key === 'Esc') && document.body.classList.contains('workspace-nav-open')){
+      closeWorkspaceNav();
+    }
+  });
+  // 从窄屏拖到宽屏时抽屉状态没有意义，收起以免留下锁滚动的类。
+  if(WORKSPACE_NAV_DRAWER_MQ){
+    const onChange = function(){ if(!WORKSPACE_NAV_DRAWER_MQ.matches) closeWorkspaceNav(); };
+    if(WORKSPACE_NAV_DRAWER_MQ.addEventListener) WORKSPACE_NAV_DRAWER_MQ.addEventListener('change', onChange);
+    else if(WORKSPACE_NAV_DRAWER_MQ.addListener) WORKSPACE_NAV_DRAWER_MQ.addListener(onChange);
+  }
+})();
 (function restoreWorkspaceNav(){
   try {
     if(localStorage.getItem('wb-workspace-nav-collapsed') === '1'){
