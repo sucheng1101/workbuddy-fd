@@ -1,26 +1,32 @@
-/* 页面侧栏导航的前端契约：所有主页面共用一套「按区块现场生成」的导航。
+/* 页面区块锚点契约（页内区块导航已移除）。
  *
- * 侧栏不写死任何页面、也不写死任何区块：initPageNav() 拿一个 .main-page，
- * 扫它内部最外层的 section 生成导航项，标题取 section 首个 h2 的文本（忽略
- * 用来显示状态的 <em>），锚点 id 由标题内容哈希得到。因此增删区块、调整顺序、
- * 甚至以后新增一个页面，都不需要改导航代码——这正是要钉住的性质：
+ * 仪表盘不再渲染 .page-sidebar / .page-nav，多区块页面改用分段按钮切换。这里
+ * 只钉住仍承诺的“旧锚点兼容”性质：
  *
- *   - 嵌套 section 不单独成项（它属于父区块的内容）
- *   - display:none 的区块不进导航，也不能当 #锚点 落点
- *   - 没有 h2 的 section 不成项；不足两项的页面干脆不给侧栏
- *   - 清单没变就不重建 DOM（否则轮询重建表格时高亮会抖）
- *   - 区块清单变了（新增/删除/整块显隐）就重建
+ *   - initPageNav(page) 只给参与导航的区块补稳定 id（page-sec-<hash>），不建侧栏；
+ *   - 已有 id 的区块不被覆盖；嵌套/无 h2/隐藏的区块不参与；
+ *   - restorePageNavHash() 只在带 #锚点 打开时把本页“可见、可导航”的区块滚到视口，
+ *     别的页面的锚点或被隐藏的区块不触发滚动。
  *
- * 这些错法都只会在页面上静默表现成「侧栏少一项 / 点了没反应」，单看代码看不出
- * 来，所以这里对着 dashboard.html 里真实的函数跑。Run with Node.
+ * 对着 dashboard.html 里真实函数跑。Run with Node.
  */
+'use strict';
 const assert = require('assert');
 const {dashboardHtml, dashboardScript} = require('./_dashboard_source.js');
 
 const html = dashboardHtml();
 const script = dashboardScript();
 
-/* ---- 一个只够跑导航的极简 DOM ---- */
+/* ---- 1. 标记里不再有侧栏 / 两栏样式 ---- */
+assert.ok(html.includes('initPageNav'), 'dashboard.html 应当有 initPageNav');
+assert.ok(!/class="page-sidebar"/.test(html), '侧栏不应写死在标记里');
+assert.ok(!html.includes('function pageNavSignature'), '侧栏指纹函数应已移除');
+assert.ok(!html.includes('PAGE_NAV_COLLAPSE_KEY'), '侧栏收起键应已移除');
+assert.ok(!html.includes('.main-page.page-nav-on > .page-sidebar'), '两栏侧栏样式应已移除');
+assert.ok(!html.includes('page-nav-item'), '导航项样式/脚本应已移除');
+assert.ok(!html.includes('page-sidebar-toggle'), '侧栏收起按钮应已移除');
+
+/* ---- 一个只够跑锚点的极简 DOM ---- */
 const ALL = [];
 function El(tag, ephemeral){
   this.tagName = String(tag).toUpperCase();
@@ -86,7 +92,6 @@ El.prototype.hasAttribute = function(k){ return k in this.attrs; };
 El.prototype.removeAttribute = function(k){ delete this.attrs[k]; };
 El.prototype.addEventListener = function(type, fn){ (this.listeners[type] = this.listeners[type] || []).push(fn); };
 El.prototype.removeEventListener = function(){};
-// 启动路径（面板门控、主题、i18n）会调到这些，给个空实现即可
 ['focus', 'blur', 'click', 'select', 'scrollIntoView', 'insertAdjacentHTML', 'replaceChildren',
  'append', 'prepend', 'after', 'before', 'dispatchEvent', 'setSelectionRange'].forEach(name => {
   El.prototype[name] = function(){};
@@ -134,7 +139,7 @@ function matches(el, sel){
 }
 
 const root = new El('html');
-// 吸顶 header：导航跳转要按它的实测高度让位
+// 吸顶 header：锚点落位要按它的实测高度让位
 const header = new El('header');
 header.offsetHeight = 40;
 root.appendChild(header);
@@ -143,7 +148,6 @@ const detached = id => {
   if(!byId.has(id)) byId.set(id, Object.assign(new El('div', true), { id: id }));
   return byId.get(id);
 };
-const timers = [];
 
 global.document = {
   getElementById: id => ALL.find(el => el.id === id) || detached(id),
@@ -163,10 +167,9 @@ global.window = {
 global.location = global.window.location;
 global.history = { replaceState(_s, _t, url){ global.__url = url; } };
 global.MutationObserver = function(){ this.observe = () => {}; this.disconnect = () => {}; };
-global.setTimeout = fn => { timers.push(fn); return timers.length; };
+global.setTimeout = () => 0;
 global.clearTimeout = () => {};
 global.setInterval = () => 0;
-/* 真的存得住：侧栏收起状态就是靠 localStorage 跨刷新保留的 */
 const store = new Map();
 global.localStorage = {
   getItem: k => (store.has(k) ? store.get(k) : null),
@@ -174,16 +177,16 @@ global.localStorage = {
   removeItem: k => { store.delete(k); },
 };
 global.sessionStorage = global.localStorage;
-global.navigator = { userAgent: 'node' };
+// Node 21+ 把 navigator 暴露成 getter-only 全局，只能用 defineProperty 安装。
+try { Object.defineProperty(global, 'navigator', { value: { userAgent: 'node' }, configurable: true, writable: true }); }
+catch(e) { /* 装不上就沿用宿主自带的 */ }
 global.alert = () => {};
 global.confirm = () => false;
 global.fetch = () => Promise.resolve({ ok: false, status: 500, json: async () => ({}), text: async () => '' });
 
 const api = new Function(script + `
-  return { initPageNav, pageNavSections, pageNavLabel, pageNavAnchorId, pageNavSignature,
-           pageNavSpy, restorePageNavHash, scrollToPageSection, switchMainTab,
-           applyPageNavCollapse, togglePageNavCollapse, pageNavCollapsedPref,
-           PAGE_NAV_COLLAPSE_KEY };`)();
+  return { initPageNav, pageNavSections, pageNavLabel, pageNavAnchorId,
+           restorePageNavHash, switchMainTab };`)();
 
 /* ---- 造页面的小工具 ---- */
 function sectionEl(label, opts){
@@ -206,53 +209,7 @@ function pageEl(id, sections){
   sections.forEach(sec => page.appendChild(sec));
   return page;
 }
-function navItems(page){
-  return page.querySelectorAll('.page-nav-item');
-}
-function labels(page){
-  return navItems(page).map(btn => btn.textContent);
-}
 function attach(page){ root.appendChild(page); return page; }
-
-/* ---- 1. 真实文件里的契约：不再有「设置页专用」的痕迹 ---- */
-const legacy = ['settings-layout', 'settingsSidebar', 'settingsBody', 'settings-nav',
-                'settings-sidebar', 'initSettingsSidebar', 'restoreSettingsHash', 'settings-flash'];
-for(const name of legacy){
-  assert.ok(!html.includes(name), 'dashboard.html 不该再残留设置页专用标识：' + name);
-}
-assert.ok(html.includes('initPageNav'), 'dashboard.html 应当有 initPageNav');
-// 侧栏一律由 JS 现场插入，任何页面都不许在标记里写死
-assert.ok(!/class="page-sidebar"/.test(html), '侧栏不应写死在标记里');
-assert.ok(/\.main-page\.page-nav-on\s*>\s*\.page-sidebar/.test(html), '缺少页面级两栏样式');
-assert.ok(/@media \(max-width:860px\)[\s\S]{0,400}?\.main-page\.page-nav-on > \*\{grid-column:1\}/.test(html),
-  '窄屏应把页面收回单栏（否则 grid-column:2 会多出一列）');
-// 收起把整列压成一条细轨。这套规则必须限定在宽屏：窄屏的导航是一条横向
-// 胶囊行，收起规则若也命中，导航会被 display:none 整个藏掉且再也点不开。
-assert.ok(/@media \(min-width:861px\)[\s\S]{0,600}?\.page-nav-collapsed\.active\{grid-template-columns:44px/.test(html),
-  '收起后的窄列要限定在宽屏生效');
-assert.ok(/@media \(max-width:860px\)[\s\S]{0,900}?\.page-sidebar-head\{display:none\}/.test(html),
-  '窄屏没有可收的余地，收起按钮应一并藏掉');
-// header 与 main 的左右留白共用一个变量，两处各写一个值会慢慢漂开对不齐
-assert.ok(/--page-pad:clamp\(/.test(html), '缺少统一的页面左右留白变量');
-assert.ok(/header\{padding:16px var\(--page-pad\)/.test(html), 'header 应使用页面留白变量');
-assert.ok(/main\{padding:20px var\(--page-pad\)/.test(html), 'main 应使用页面留白变量');
-
-// 各页面区块数：导航就是照这些区块生成的，每个主页面都要有多个区块才有侧栏可跳。
-// 网关页现在只剩「最近请求」与「网关模型清单」两块：账号列表与「当前禁用」被
-// issue #176 拆到了「账号」页，成长任务与日常福利则被上游搬到了「任务与福利」页
-// （所以这里的下界从上游的 4 跟着落到 2——仍然是「够撑起侧栏」，不是「只增不减」）。
-const regions = {};
-const pageMarkers = [...html.matchAll(/<div id="page(\w+)" class="main-page">/g)];
-pageMarkers.forEach((m, i) => {
-  const start = m.index;
-  const end = i + 1 < pageMarkers.length ? pageMarkers[i + 1].index : html.length;
-  regions[m[1].toLowerCase()] = (html.slice(start, end).match(/<section/g) || []).length;
-});
-assert.ok(regions.gateway >= 2, 'gateway 应有多个区块，实际 ' + regions.gateway);
-assert.ok(regions.accounts >= 3, 'accounts 应有多个区块，实际 ' + regions.accounts);
-assert.ok(regions.analytics >= 3, 'analytics 应有多个区块，实际 ' + regions.analytics);
-assert.ok(regions.settings >= 9, 'settings 应有多个区块，实际 ' + regions.settings);
-assert.strictEqual(regions.logs, 0, 'logs 目前是单一视图，没有 section');
 
 /* ---- 2. 哪些区块参与导航 ---- */
 const secAccount = sectionEl('账号', { em: 'acctCount' });
@@ -295,158 +252,58 @@ const taken = new Set([api.pageNavAnchorId('账号', new Set())]);
 assert.strictEqual(api.pageNavAnchorId('账号', taken),
   api.pageNavAnchorId('账号', new Set()) + '-2', 'id 撞车要顺延');
 
-/* ---- 4. initPageNav：建栏、分配锚点、按标题生成导航项 ---- */
+/* ---- 4. initPageNav：只补锚点，不建侧栏 ---- */
 attach(gateway);
 gateway.classList.add('active');
-// 给区块一点真实位置，否则都在视口顶端，滚动高亮会一路点到最后一项
 api.pageNavSections(gateway).forEach((sec, i) => { sec.rectTop = 120 + i * 300; });
 api.initPageNav(gateway);
-assert.ok(gateway.classList.contains('page-nav-on'), '区块够多应启用页面级两栏');
-assert.strictEqual(gateway.firstChild, gateway.querySelector('.page-sidebar'), '侧栏要插在页面最前面');
-assert.deepStrictEqual(labels(gateway), ['账号', '最近请求', '高级设置'], '导航项就是区块标题');
+assert.strictEqual(gateway.querySelector('.page-sidebar'), null, '不应再创建侧栏 DOM');
+assert.strictEqual(gateway.querySelector('.page-nav'), null, '不应再创建导航列表 DOM');
+assert.ok(!gateway.classList.contains('page-nav-on'), '不应再启用页面级两栏');
 for(const sec of api.pageNavSections(gateway)){
   assert.ok(sec.id, '每个参与导航的区块都要有锚点 id');
 }
 const idOfAccount = api.pageNavSections(gateway)[0].id;
 assert.ok(idOfAccount.indexOf('page-sec-') === 0, '锚点 id 由标题哈希得到：' + idOfAccount);
-assert.strictEqual(navItems(gateway)[0].dataset.target, idOfAccount, '导航项要指向区块锚点');
-assert.ok(navItems(gateway)[0].classList.contains('active'), '默认高亮第一项');
 
-// 重复调用不重建 DOM（否则轮询刷新时高亮会抖）
-const sidebarBefore = gateway.querySelector('.page-sidebar');
+// 已有 id 的区块不被覆盖
+const pinned = new El('section');
+pinned.id = 'keep-me';
+const pinnedH2 = new El('h2'); pinnedH2.appendChild('带 id 的区块'); pinned.appendChild(pinnedH2);
+const pageKeep = pageEl('pageKeep', [pinned, sectionEl('另一个')]);
+attach(pageKeep);
+api.initPageNav(pageKeep);
+assert.strictEqual(pinned.id, 'keep-me', '已有 id 不应被覆盖');
+assert.ok(api.pageNavSections(pageKeep)[1].id.indexOf('page-sec-') === 0, '没有 id 的区块仍会补锚点');
+
+// 重复调用幂等，id 不变
 api.initPageNav(gateway);
-assert.strictEqual(gateway.querySelector('.page-sidebar'), sidebarBefore, '清单没变时不应重建侧栏');
+assert.strictEqual(api.pageNavSections(gateway)[0].id, idOfAccount, '重复调用锚点 id 不变');
 
-/* 上面那条只钉住了**容器**：initPageNav 无论如何都复用同一个 .page-sidebar，
-   所以即使 nav 和每一项都被重新造过一遍，它也照样是绿的（本节末尾那条
-   「重建复用同一个侧栏容器」正是这个复用）。而真正会抖的是容器**里面**：
-   dashboard.html 的 signature 短路一旦失效，每次调用都会清空侧栏、新建 nav、
-   重建每个 .page-nav-item——悬停与键盘焦点丢失、点了没发出去的点击被丢掉。
-   所以这里再钉住子节点的身份：清单没变时，连 nav 和第一项都不许换。 */
-const navBefore = gateway.querySelector('.page-nav');
-const itemBefore = navItems(gateway)[0];
-api.initPageNav(gateway);
-assert.strictEqual(gateway.querySelector('.page-nav'), navBefore,
-  '清单没变时不应重建导航列表');
-assert.strictEqual(navItems(gateway)[0], itemBefore,
-  '清单没变时不应重建导航项');
-
-/* ---- 5. 区块清单变了就重建 ---- */
-secGrowth.style.display = 'block';                    // 成长任务显出来
-api.initPageNav(gateway);
-assert.deepStrictEqual(labels(gateway), ['账号', '最近请求', '成长任务', '高级设置'],
-  '区块显隐变化后导航要跟上');
-assert.strictEqual(gateway.querySelector('.page-sidebar'), sidebarBefore,
-  '重建复用同一个侧栏容器，只换里面的项');
-
-/* ---- 6. 区块不足两项就不给侧栏 ---- */
-const logs = attach(pageEl('pageLogs', [sectionEl('网关运行日志')]));
-logs.classList.add('active');
-api.initPageNav(logs);
-assert.ok(!logs.classList.contains('page-nav-on'), '只有一项的页面不该启用两栏');
-assert.strictEqual(logs.querySelector('.page-sidebar'), null, '只有一项的页面不该有侧栏');
-
-// 从够用掉到不够用：侧栏要撤掉
-const shrink = attach(pageEl('pageShrink', [sectionEl('甲'), sectionEl('乙')]));
-api.initPageNav(shrink);
-assert.ok(shrink.querySelector('.page-sidebar'), '两项应启用侧栏');
-api.pageNavSections(shrink)[1].remove();
-api.initPageNav(shrink);
-assert.strictEqual(shrink.querySelector('.page-sidebar'), null, '掉到一项要撤掉侧栏');
-assert.ok(!shrink.classList.contains('page-nav-on'), '掉到一项要取消两栏');
-
-/* ---- 7. 滚动高亮：以「越过吸顶 header 的最后一个区块」为准 ---- */
-const spyPage = attach(pageEl('pageSpy', [sectionEl('甲'), sectionEl('乙')]));
-spyPage.classList.add('active');
-gateway.classList.remove('active');
-api.initPageNav(spyPage);
-const spySections = api.pageNavSections(spyPage);
-const spyItems = navItems(spyPage);
-spySections[0].rectTop = -400; spySections[1].rectTop = -100;
-api.pageNavSpy();
-assert.ok(spyItems[1].classList.contains('active'), '两个区块都滚过去了应高亮后一个');
-spySections[0].rectTop = -100; spySections[1].rectTop = 300;
-api.pageNavSpy();
-assert.ok(spyItems[0].classList.contains('active'), '后一个还在下方时应高亮前一个');
-
-/* ---- 8. #锚点 只落在本页可导航的区块上 ---- */
-window.location.hash = '#' + spySections[0].id;
+/* ---- 5. #锚点 只落在本页可见、可导航的区块上 ---- */
+window.location.hash = '#' + idOfAccount;
 global.__scroll = null;
 api.restorePageNavHash();
 assert.ok(global.__scroll, '本页可导航区块的锚点应触发滚动');
 assert.strictEqual(global.__scroll.behavior, 'auto', '带锚点打开是直接落位，不是平滑滚动');
 
-window.location.hash = '#' + secAccount.id;            // 别的页面上的区块
+window.location.hash = '#' + api.pageNavSections(pageKeep)[0].id;   // 别的页面上的区块
 global.__scroll = null;
 api.restorePageNavHash();
 assert.strictEqual(global.__scroll, null, '别的页面的锚点不该让当前页滚动');
 
-spySections[1].style.display = 'none';                // 本页但已被隐藏
-window.location.hash = '#' + spySections[1].id;
+secRecent.style.display = 'none';                     // 本页但已被隐藏
+window.location.hash = '#' + secRecent.id;
 global.__scroll = null;
 api.restorePageNavHash();
 assert.strictEqual(global.__scroll, null, '被隐藏的区块不能当锚点落点');
-spySections[1].style.display = '';
+secRecent.style.display = '';
 
-// 点导航项：写 hash、加描边、按实测 header 高度让位
-window.location.hash = '';
-global.__scroll = null;
-navItems(spyPage)[1].listeners.click[0]();
-assert.strictEqual(global.__url, 'http://panel/#' + spySections[1].id, '点击导航项要把锚点写进 URL');
-assert.ok(global.__scroll && global.__scroll.top === spySections[1].rectTop - (header.offsetHeight + 14),
-  '要让开吸顶 header 的高度，实际 ' + (global.__scroll && global.__scroll.top));
-
-/* ---- 9. 切标签页时按该页的区块重建 ---- */
+/* ---- 6. 切标签页仍然可用 ---- */
 const btnGateway = new El('button'); btnGateway.id = 'btnNavGateway';
 root.appendChild(btnGateway);
 attach(pageEl('pageSettings', [sectionEl('甲'), sectionEl('乙'), sectionEl('丙')]));
 api.switchMainTab('gateway');
 assert.ok(gateway.classList.contains('active'), '切到 gateway 应激活该页');
-assert.deepStrictEqual(labels(gateway), ['账号', '最近请求', '成长任务', '高级设置'],
-  '切回 gateway 用的是它自己的区块清单');
 
-// 每个页面各自一份侧栏，互不串台
-const pageSettings = document.getElementById('pageSettings');
-api.initPageNav(pageSettings);
-assert.deepStrictEqual(pageSettings.querySelectorAll('.page-nav-item').map(b => b.textContent),
-  ['甲', '乙', '丙'], 'settings 的导航来自 settings 的区块');
-assert.deepStrictEqual(labels(gateway), ['账号', '最近请求', '成长任务', '高级设置'],
-  '给别的页面建栏不该动到 gateway 的侧栏');
-assert.notStrictEqual(pageSettings.querySelector('.page-sidebar'), gateway.querySelector('.page-sidebar'),
-  '每个页面有各自的侧栏容器');
-
-/* ---- 10. 侧栏可收起 ---- */
-function toggleOf(page){ return page.querySelector('.page-sidebar-toggle'); }
-
-assert.ok(gateway.querySelector('.page-sidebar-head'), '侧栏头部要容纳标题与收起按钮');
-assert.ok(toggleOf(gateway), '侧栏要有收起按钮');
-assert.ok(!gateway.classList.contains('page-nav-collapsed'), '默认是展开的');
-assert.strictEqual(toggleOf(gateway).getAttribute('aria-expanded'), 'true', '展开时 aria-expanded 为 true');
-
-toggleOf(gateway).listeners.click[0]();
-assert.ok(gateway.classList.contains('page-nav-collapsed'), '点一次应收起');
-assert.strictEqual(localStorage.getItem(api.PAGE_NAV_COLLAPSE_KEY), '1', '收起状态要落盘');
-assert.strictEqual(toggleOf(gateway).textContent, '»', '收起后按钮指向「展开」');
-assert.strictEqual(toggleOf(gateway).getAttribute('aria-expanded'), 'false', '收起时 aria-expanded 为 false');
-// 收起只压列宽，导航项本身还在 DOM 里（由 CSS 隐藏），重新展开不该丢东西
-assert.deepStrictEqual(labels(gateway), ['账号', '最近请求', '成长任务', '高级设置'],
-  '收起不该重建或丢掉导航项');
-
-toggleOf(gateway).listeners.click[0]();
-assert.ok(!gateway.classList.contains('page-nav-collapsed'), '再点一次应展开');
-assert.strictEqual(localStorage.getItem(api.PAGE_NAV_COLLAPSE_KEY), '0', '展开状态也要落盘');
-
-// 落盘的状态要在下次建栏时生效，否则刷新就白收了
-localStorage.setItem(api.PAGE_NAV_COLLAPSE_KEY, '1');
-const freshPage = attach(pageEl('pageFresh', [sectionEl('甲'), sectionEl('乙')]));
-api.initPageNav(freshPage);
-assert.ok(freshPage.classList.contains('page-nav-collapsed'), '建栏时应读回上次的收起状态');
-assert.strictEqual(toggleOf(freshPage).getAttribute('aria-expanded'), 'false', '读回的状态要同步到按钮上');
-localStorage.setItem(api.PAGE_NAV_COLLAPSE_KEY, '0');
-
-// 区块不足两项的页面没有侧栏，收起类也不该赖在页面上
-const lonelyPage = attach(pageEl('pageLonely', [sectionEl('独苗')]));
-api.initPageNav(lonelyPage);
-assert.ok(!lonelyPage.classList.contains('page-nav-collapsed'), '没有侧栏的页面不该带收起类');
-
-console.log('page nav assertions passed');
+console.log('page anchor assertions passed');

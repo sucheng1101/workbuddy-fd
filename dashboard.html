@@ -188,6 +188,19 @@ body.pricing-off #kpiCostCard{display:none}
 .switch input:checked+.switch-track{background:var(--accent2);border-color:var(--accent2)}
 .switch input:checked+.switch-track::after{transform:translateX(18px);background:#fff}
 .switch input:focus-visible+.switch-track{outline:2px solid var(--accent2);outline-offset:2px}
+/* 全局 checkbox 保留原生 input（表单语义、键盘可达性不变），外观按钮化。
+   .switch 里的 input 由上面的规则隐藏并交给 .switch-track，这里用 :not() 排除。 */
+input[type="checkbox"]:not(.switch input){
+  appearance:none;-webkit-appearance:none;width:18px;height:18px;box-sizing:border-box;
+  border:1px solid var(--line);border-radius:6px;background:var(--panel2);cursor:pointer;
+  position:relative;vertical-align:middle;flex:0 0 auto;
+  transition:background .15s ease,border-color .15s ease;
+}
+input[type="checkbox"]:not(.switch input):hover{border-color:var(--line-hover);background:var(--panel)}
+input[type="checkbox"]:not(.switch input):checked{background:var(--accent);border-color:var(--accent)}
+input[type="checkbox"]:not(.switch input):checked::after{content:'';position:absolute;left:5px;top:2px;
+  width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+input[type="checkbox"]:not(.switch input):disabled{opacity:.45;cursor:not-allowed}
 #costTip{position:fixed;z-index:80;display:none;max-width:min(480px,94vw);padding:10px 12px;
   border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--fg);
   font-size:12px;line-height:1.7;box-shadow:0 14px 34px rgba(15,23,42,.28);pointer-events:none}
@@ -396,68 +409,6 @@ a:hover{text-decoration:underline}
    才不会互相把对方放出来。作者样式本就压过 [hidden] 的 UA 样式，所以这里显式
    声明一次，免得以后给这两个选择器加 display 时又悄悄失效。 */
 .main-nav-btn[hidden],.main-page[hidden]{display:none!important}
-/* 页面级两栏：左侧区块导航由 initPageNav() 依据页面内的 section 现场生成，
-   这里的样式只描述外观，既不预设任何页面，也不预设任何区块。给页面加
-   .page-nav-on 即可启用，区块不足两项的页面不加这个类，保持单栏。 */
-.main-page.page-nav-on.active{display:grid;grid-template-columns:196px minmax(0,1fr);gap:20px;align-items:start}
-.main-page.page-nav-on > *{grid-column:2;min-width:0}
-/* 内容包在 .page-nav-body 里，grid 就只有两项，1 / -1 才真的跨满整个内容区
-   （否则它只跨第 1 行，首行被撑成侧栏高度）；区块间距也仍只由 section 自己
-   的 margin 决定，不会被行间距再叠一次。 */
-.main-page.page-nav-on > .page-sidebar{grid-column:1;grid-row:1 / -1;position:sticky;
-  top:var(--page-nav-top,84px);z-index:6;background:var(--panel);border:1px solid var(--line);
-  border-radius:14px;padding:10px;box-shadow:var(--shadow);
-  max-height:calc(100vh - var(--page-nav-top,84px) - 20px);overflow:auto}
-.page-sidebar-title{font-size:11px;font-weight:700;color:var(--dim);text-transform:uppercase;
-  letter-spacing:.6px;padding:6px 10px 8px}
-.page-nav{display:flex;flex-direction:column;gap:2px}
-.page-nav-item{appearance:none;background:transparent;border:1px solid transparent;color:var(--dim);
-  text-align:left;padding:8px 10px;border-radius:8px;font:inherit;font-size:13px;line-height:1.35;
-  cursor:pointer;transition:all .15s ease;overflow-wrap:anywhere}
-.page-nav-item:hover{color:var(--fg);background:var(--panel2)}
-.page-nav-item.active{color:var(--fg);background:var(--panel2);border-color:var(--line);font-weight:600}
-/* 回到顶部：排在区块清单上方，所以留出与清单的间距 */
-button.page-nav-top{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;
-  margin-bottom:8px;padding:7px 10px;border-radius:8px;font-size:12px;font-weight:600;
-  background:var(--panel2);border:1px solid var(--line);color:var(--fg);box-shadow:none;
-  transition:all .15s ease}
-button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);color:var(--accent)}
-.page-sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
-.page-sidebar-toggle{appearance:none;flex:0 0 auto;width:22px;height:22px;padding:0;
-  display:inline-flex;align-items:center;justify-content:center;border-radius:6px;
-  border:1px solid var(--line);background:var(--panel2);color:var(--dim);
-  font:inherit;font-size:12px;line-height:1;cursor:pointer;transition:all .15s ease}
-.page-sidebar-toggle:hover{color:var(--fg);border-color:var(--line-hover)}
-/* 收起侧栏：整列压成一条细轨，只留展开按钮，把宽度让给内容区。窄屏下导航
-   本来就是一条横栏，没有可收的余地，所以这套样式只在宽屏生效。 */
-@media (min-width:861px){
-  .main-page.page-nav-on.page-nav-collapsed.active{grid-template-columns:44px minmax(0,1fr);gap:12px}
-  .main-page.page-nav-on.page-nav-collapsed > .page-sidebar{padding:6px 4px;overflow:hidden}
-  .main-page.page-nav-on.page-nav-collapsed .page-sidebar-title,
-  .main-page.page-nav-on.page-nav-collapsed .page-nav,
-  .main-page.page-nav-on.page-nav-collapsed button.page-nav-top{display:none}
-  .main-page.page-nav-on.page-nav-collapsed .page-sidebar-head{justify-content:center;padding:0}
-}
-.main-page.page-nav-on section{scroll-margin-top:var(--page-nav-top,84px)}
-/* 点击导航后短暂描边，明确「跳到这里了」 */
-.main-page.page-nav-on section.page-nav-flash{outline:2px solid var(--accent);outline-offset:2px}
-@media (max-width:860px){
-  .main-page.page-nav-on.active{grid-template-columns:minmax(0,1fr);gap:14px}
-  .main-page.page-nav-on > *{grid-column:1}
-  .main-page.page-nav-on > .page-sidebar{grid-row:auto;max-height:none;overflow:visible;padding:8px;
-    border-radius:12px;background:var(--header-bg);backdrop-filter:blur(10px);
-    display:flex;align-items:center;gap:8px}
-  .page-sidebar-title{display:none}
-  /* 窄屏导航是横向胶囊行，收不起来，连收起按钮一起藏掉 */
-  .page-sidebar-head{display:none}
-  .page-nav{flex:1 1 auto;min-width:0;flex-direction:row;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px;
-    scrollbar-width:thin}
-  .page-nav-item{white-space:nowrap;padding:7px 12px;border-radius:999px;
-    background:var(--panel2);border-color:var(--line)}
-  /* 窄屏下导航是横向滚动的胶囊行，回到顶部钉在左端不跟着滚 */
-  button.page-nav-top{width:auto;flex:0 0 auto;margin-bottom:0;padding:7px 12px;border-radius:999px;
-    white-space:nowrap}
-}
 /* v0 工作台框架：全局导航固定为左侧工作台，页面内导航收敛为内容目录。 */
 @media (min-width:861px){
   :root{--workspace-nav-width:224px;--workspace-header-height:72px}
@@ -506,20 +457,9 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   body.workspace-nav-collapsed .main-nav-btn::before{left:50%;transform:translate(-50%,-50%)}
   body.workspace-nav-collapsed #btnNavTasks::before{transform:translate(-50%,-50%) rotate(45deg)}
   main{margin-left:var(--workspace-nav-width);padding-top:26px}
-  .main-page.page-nav-on.active{display:block}
-  .main-page.page-nav-on > .page-sidebar{position:sticky;top:calc(var(--workspace-header-height) + 12px);z-index:6;
-    width:100%;max-height:none;display:flex;align-items:center;gap:12px;margin-bottom:18px;padding:8px 10px;
-    border-radius:12px;background:var(--header-bg);backdrop-filter:blur(10px);box-shadow:var(--shadow-sm)}
-  .main-page.page-nav-on > .page-sidebar .page-sidebar-head{flex:0 0 auto;min-width:118px}
-  .page-sidebar-title{padding:5px 8px;font-size:10px;letter-spacing:.08em}
-  button.page-nav-top{width:auto;margin:0;padding:7px 10px;border-radius:8px}
-  .page-nav{flex:1;min-width:0;display:flex;flex-direction:row;gap:6px;overflow-x:auto;padding:1px 0 2px}
-  .page-nav-item{white-space:nowrap;padding:7px 11px;border-radius:8px}
-  .page-nav-item.active{background:var(--accent-soft);border-color:rgba(37,99,235,.2);color:var(--accent)}
 }
 /* 窄屏：全局工作台导航收成从左侧滑出的抽屉（position:fixed + transform），
-   由 header 里的汉堡按钮开合。它不再挤进 header 变成一排顶部标签，视觉上与
-   页面内「本页导航」（横向胶囊行）明确区分，两套导航各占一级。 */
+   由 header 里的汉堡按钮开合。它不再挤进 header 变成一排顶部标签。 */
 @media (max-width:860px){
   .main-nav{
     position:fixed;inset:0 auto 0 0;width:min(272px,84vw);height:100vh;
@@ -558,7 +498,6 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   body.workspace-nav-open{overflow:hidden}
 }
 /* v0.2 管理工作台层：统一设置区块、状态标签与窄屏边界。 */
-#pageSettings .page-nav-body{min-width:0}
 #pageSettings section{position:relative;overflow:hidden}
 #pageSettings section::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--line);opacity:.9}
 #pageSettings section:focus-within::before{background:var(--accent)}
@@ -572,15 +511,12 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 #pageSettings .table-wrap{border:1px solid var(--line);background:var(--panel2)}
 #pageSettings .table-wrap table{margin:0}
 #pageSettings .limit-name{min-width:220px}
-#pageSettings .page-sidebar{align-self:start}
 @media (min-width:861px){
-  #pageSettings .page-nav-body{display:grid;grid-template-columns:minmax(0,1fr);gap:0}
   #pageSettings section{scroll-margin-top:108px}
 }
 @media (max-width:860px){
   html,body{overflow-x:hidden}
-  main,.main-page,.page-nav-body{min-width:0;max-width:100%}
-  .main-page.page-nav-on > .page-nav-body{width:100%}
+  main,.main-page{min-width:0;max-width:100%}
   #pageSettings section{padding:14px 14px;margin-bottom:14px}
   #pageSettings section h2{padding-right:0;align-items:flex-start;flex-wrap:wrap;line-height:1.4}
   #pageSettings section h2::after{width:100%;margin:2px 0 0;color:var(--dim-light)}
@@ -592,8 +528,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 /* v0.3 工作台统一视觉层：页面头、区块标题、操作区与状态标签在所有主页面共用
    同一套层级与间距；窄屏优先保证不横向溢出、按钮可换行。 */
 .main-page{min-width:0}
-.main-page > .page-head,
-.main-page .page-nav-body > .page-head{
+.main-page > .page-head{
   display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;
   padding:16px 20px;margin-bottom:18px;border:1px solid var(--line);border-radius:14px;
   background:linear-gradient(135deg,var(--panel),var(--panel2));box-shadow:var(--shadow-sm)
@@ -610,8 +545,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 .main-page section > div:first-child{min-width:0}
 .main-page .table-wrap{max-width:100%}
 @media (max-width:860px){
-  .main-page > .page-head,
-  .main-page .page-nav-body > .page-head{padding:14px 14px;margin-bottom:14px;gap:10px}
+  .main-page > .page-head{padding:14px 14px;margin-bottom:14px;gap:10px}
   .page-head-main{flex-basis:100%}
   .page-head h2{font-size:16px}
   .main-page section{min-width:0}
@@ -622,6 +556,24 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 .range-btn{background:transparent;border:none;color:var(--dim);padding:4px 12px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease}
 .range-btn:hover{color:var(--fg)}
 .range-btn.active{background:var(--accent);color:#fff;font-weight:600;box-shadow:var(--shadow-sm)}
+/* 分段按钮：按钮式开关。一组里同时只有一个是激活项，用来在页内分区之间切换。
+   页内分区显隐用页容器上的 view 类 + !important 控制，压过区块可能写入的内联
+   display；类由脚本按当前视图设置，标记里不写死以免影响静态结构断言。 */
+.seg-group{display:inline-flex;gap:3px;background:var(--panel2);padding:3px;border-radius:8px;border:1px solid var(--line);flex-wrap:wrap}
+.seg-group .range-btn{padding:7px 12px}
+#pageTasks.task-view-cn #sectionIntlTasks{display:none!important}
+#pageTasks.task-view-intl #sectionGrowthTasks{display:none!important}
+#pageAccounts.acct-view-list #secAccountDisabled,
+#pageAccounts.acct-view-list #secAccountActivity{display:none!important}
+#pageAccounts.acct-view-disabled #secAccountList,
+#pageAccounts.acct-view-disabled #secAccountActivity{display:none!important}
+#pageAccounts.acct-view-activity #secAccountList,
+#pageAccounts.acct-view-activity #secAccountDisabled{display:none!important}
+/* 账号页 KPI 速览：纯展示，数据来自 window.ACCOUNTS，不新增接口。 */
+.kpi-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.kpi-card{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px 14px;box-shadow:var(--shadow-sm)}
+.kpi-k{font-size:11px;color:var(--dim);font-weight:600;margin-bottom:4px}
+.kpi-v{font-size:20px;font-weight:700;color:var(--fg);line-height:1.2}
 #analyticsKpiCards{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px}
 #analyticsKpiCards .card{padding:12px 16px;min-width:0;overflow:hidden;border-radius:12px;background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow)}
 #analyticsKpiCards .card .v{font-size:19px;font-weight:700;white-space:nowrap}
@@ -3206,10 +3158,23 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <h2>账号</h2>
       <div class="page-head-desc">管理账号池：添加/导入/导出、启用停用、凭证与积分刷新、代理出口绑定，以及签到与每日活跃记录。</div>
     </div>
+    <div class="page-head-actions">
+      <div class="seg-group" role="tablist" aria-label="账号视图">
+        <button type="button" class="range-btn active" id="btnAcctSegList" role="tab" aria-selected="true" onclick="switchAccountSection('list')">账号列表</button>
+        <button type="button" class="range-btn" id="btnAcctSegDisabled" role="tab" aria-selected="false" onclick="switchAccountSection('disabled')">当前禁用</button>
+        <button type="button" class="range-btn" id="btnAcctSegActivity" role="tab" aria-selected="false" onclick="switchAccountSection('activity')">签到记录</button>
+      </div>
+    </div>
   </div>
   <!-- 拆分模式下三个区块的落点（页头之后、原顺序）；合并模式搬走之后这里就空着 -->
   <span id="accountsHomeAnchor" hidden></span>
-  <section>
+  <!-- KPI/筛选视觉区：数据全部来自 /accounts（window.ACCOUNTS），不新增接口 -->
+  <div class="kpi-strip" id="acctKpi" role="group" aria-label="账号概览">
+    <div class="kpi-card"><div class="kpi-k">账号总数</div><div class="kpi-v" id="acctKpiTotal">—</div></div>
+    <div class="kpi-card"><div class="kpi-k">已启用</div><div class="kpi-v" id="acctKpiEnabled" style="color:var(--accent2)">—</div></div>
+    <div class="kpi-card"><div class="kpi-k">已停用</div><div class="kpi-v" id="acctKpiDisabled" style="color:var(--dim)">—</div></div>
+  </div>
+  <section id="secAccountList">
     <h2>
       <!-- 折叠开关：真按钮，所以键盘可达；aria-expanded、chevron
            方向与正文可见性三者永远同步。标题与计数留在正文之外，收起时仍可见。 -->
@@ -3254,7 +3219,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 
   <!-- 当前禁用总览：把散落在账号卡片上的停用/限流状态汇总成一张表。
        数据全部取自 /accounts（window.ACCOUNTS），不额外发请求。 -->
-  <section>
+  <section id="secAccountDisabled">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
       <h2 style="margin:0">当前禁用<em id="disabledRealmTag" style="color:var(--dim);font-weight:500"></em><em id="disabledCount"></em></h2>
       <div class="legend" style="margin:0"><span>「上游限流」到点自动恢复；「本地停用」需手动启用；「日限额」次日零点恢复</span></div>
@@ -3265,7 +3230,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   <!-- 签到与活跃记录：读 wb_activity.py 落下的结构化历史（GET /activity/history），
        一行一次真实尝试。筛选全部由服务端做（range/task/result/uid/limit），前端
        只拼查询串与渲染，免得两处各写一份筛选规则再慢慢跑偏。 -->
-  <section>
+  <section id="secAccountActivity">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
       <h2 style="margin:0">签到与活跃记录 <em id="activityCount"></em></h2>
       <div style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -3307,6 +3272,12 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     <div class="page-head-main">
       <h2>任务与福利</h2>
       <div class="page-head-desc">国际版每日活跃与国内版成长任务：批量接取、事件上报领奖、猫猫日常与连登管家，以及签到与打卡状态。</div>
+    </div>
+    <div class="page-head-actions">
+      <div class="seg-group" role="tablist" aria-label="任务分区">
+        <button type="button" class="range-btn" id="btnTaskSegCn" role="tab" aria-selected="true" onclick="switchTaskSection('cn')">国内版任务</button>
+        <button type="button" class="range-btn" id="btnTaskSegIntl" role="tab" aria-selected="false" onclick="switchTaskSection('intl')">国际版福利</button>
+      </div>
     </div>
   </div>
   <!-- 国际版每日活跃福利 -->
@@ -6608,6 +6579,7 @@ async function loadActivityBoard(showToast, more){
 function renderAccounts(){
   // Same data source as the account cards, so the two views can never disagree.
   renderDisabled();
+  if(typeof renderAccountKpis === 'function') renderAccountKpis();
   if(typeof updateTaskPageCheckinCards === 'function') updateTaskPageCheckinCards();
   const box = document.getElementById('accounts');
   const currentView = (window.VIEW_REALM || "intl");
@@ -7885,8 +7857,56 @@ async function refreshInner(gen){
    过一会儿才补上。这里在 DOMContentLoaded 就建（head 里那段已按 ?tab=
    与上次选择定好 .active），switchMainTab() 那次会因清单未变直接返回，
    不会重建、也不会闪。 */
+/* ---- 页内分区视图（按钮式开关） ---- */
+function setSegActive(ids, activeId){
+  ids.forEach(function(id){
+    const b = document.getElementById(id);
+    if(!b || !b.classList) return;
+    const on = (id === activeId);
+    b.classList.toggle('active', on);
+    if(b.setAttribute) b.setAttribute('aria-selected', String(on));
+  });
+}
+
+/* 任务页：国内版/国际版分区，用 #pageTasks 上的 view 类切换
+   （!important 压过 loadGrowthTasks 写入的内联 display）。 */
+function switchTaskSection(which){
+  const intl = (which === 'intl');
+  const page = document.getElementById('pageTasks');
+  if(page && page.classList){
+    page.classList.toggle('task-view-intl', intl);
+    page.classList.toggle('task-view-cn', !intl);
+  }
+  setSegActive(['btnTaskSegCn', 'btnTaskSegIntl'], intl ? 'btnTaskSegIntl' : 'btnTaskSegCn');
+}
+
+/* 账号页：账号列表（默认主视图）/当前禁用/签到记录三分区。 */
+function switchAccountSection(view){
+  const page = document.getElementById('pageAccounts');
+  if(page && page.classList){
+    page.classList.remove('acct-view-list', 'acct-view-disabled', 'acct-view-activity');
+    if(view) page.classList.add('acct-view-' + view);
+  }
+  setSegActive(['btnAcctSegList', 'btnAcctSegDisabled', 'btnAcctSegActivity'],
+    view === 'disabled' ? 'btnAcctSegDisabled'
+      : (view === 'activity' ? 'btnAcctSegActivity' : 'btnAcctSegList'));
+}
+
+/* 账号页 KPI：只读 window.ACCOUNTS，不新增接口。 */
+function renderAccountKpis(){
+  const all = Array.isArray(window.ACCOUNTS) ? window.ACCOUNTS : [];
+  const total = all.length;
+  const enabled = all.filter(function(a){ return a && a.enabled; }).length;
+  const set = function(id, v){ const el = document.getElementById(id); if(el) el.textContent = v; };
+  set('acctKpiTotal', total);
+  set('acctKpiEnabled', enabled);
+  set('acctKpiDisabled', total - enabled);
+}
+
 document.addEventListener('DOMContentLoaded', function(){
   initPageNav(document.querySelector('.main-page.active'));
+  switchTaskSection('cn');
+  switchAccountSection('list');
 });
 
 let RECENT_LIMIT = parseInt(localStorage.getItem('WB_RECENT_LIMIT') || '20', 10);
@@ -8117,17 +8137,10 @@ async function startDashboard(){
   }
 }
 
-/* ---- 页面区块导航 ----
-   导航项完全由页面内的 section 现场生成：标题取该 section 首个 h2 的文本
-   （忽略用于显示状态的 <em>），锚点 id 由标题内容哈希得到。对所有
-   .main-page 生效，所以新增页面、增删区块或调整顺序都不需要改这里。 */
-const PAGE_NAV_TOP_VAR = '--page-nav-top';
-/* 侧栏收起状态跨页面、跨刷新共用一份 */
-const PAGE_NAV_COLLAPSE_KEY = 'wb-page-nav-collapsed';
-/* 只有一项的页面不给侧栏：白占一列宽度，也没什么可跳的 */
-const PAGE_NAV_MIN_SECTIONS = 2;
-let pageNavLock = 0;
-let pageNavTimer = 0;
+/* ---- 页面区块锚点 ----
+   页面内不再渲染区块导航（.page-sidebar/.page-nav）；这里只保留旧锚点兼容：
+   打开带 #锚点 的地址时仍能落到对应区块。锚点 id 继续由区块首个 h2 的文本
+   哈希得到（page-sec-<hash>），与区块顺序无关，历史书签长期可用。 */
 
 /* 参与导航的区块：页面内最外层的 section（嵌套的 section 属于父区块的内容，
    不单独成项），自身没被 display:none 隐藏，且带 h2 标题。判据用 computed
@@ -8166,46 +8179,18 @@ function pageNavAnchorId(label, taken){
   return id;
 }
 
-/* 区块清单的指纹：只有它变了才重建导航，免得轮询重建表格时把高亮抖掉 */
-function pageNavSignature(page){
-  return pageNavSections(page).map(function(sec, i){ return pageNavLabel(sec, i); }).join('\u0001');
-}
-
-/* 跳转时要让开的距离：吸顶 header，窄屏下再加上同样吸顶的导航条本身 */
-function pageNavHeaderOffset(page){
+/* 锚点跳转要让开的距离：吸顶 header */
+function anchorHeaderOffset(){
   const header = document.querySelector('header');
-  const base = (header ? header.offsetHeight : 64) + 14;
-  const sidebar = page ? page.querySelector('.page-sidebar') : null;
-  if(sidebar && window.matchMedia('(max-width:860px)').matches){
-    return base + sidebar.offsetHeight + 10;
-  }
-  return base;
+  return (header ? header.offsetHeight : 64) + 14;
 }
 
-function syncPageNavOffset(){
-  const header = document.querySelector('header');
-  const top = (header ? header.offsetHeight : 64) + 14;
-  document.documentElement.style.setProperty(PAGE_NAV_TOP_VAR, top + 'px');
-}
-
-function setActivePageNav(page, id){
-  const nav = page ? page.querySelector('.page-nav') : null;
-  if(!nav) return;
-  nav.querySelectorAll('.page-nav-item').forEach(function(item){
-    item.classList.toggle('active', !!id && item.dataset.target === id);
-  });
-}
-
-function scrollToPageSection(page, id, smooth){
+/* 落到锚点区块：带锚点打开是直接落位（smooth === false），并同步地址栏。 */
+function scrollToPageSection(id, smooth){
   const section = document.getElementById(id);
   if(!section) return;
-  const top = section.getBoundingClientRect().top + window.pageYOffset - pageNavHeaderOffset(page);
+  const top = section.getBoundingClientRect().top + window.pageYOffset - anchorHeaderOffset();
   window.scrollTo({ top: Math.max(0, top), behavior: smooth === false ? 'auto' : 'smooth' });
-  setActivePageNav(page, id);
-  // 平滑滚动期间抑制滚动高亮，避免中途掠过其它区块把高亮抢走
-  pageNavLock = Date.now() + 700;
-  section.classList.add('page-nav-flash');
-  setTimeout(() => section.classList.remove('page-nav-flash'), 900);
   try {
     const url = new URL(window.location.href);
     url.hash = id;
@@ -8213,214 +8198,27 @@ function scrollToPageSection(page, id, smooth){
   } catch(e){}
 }
 
-/* 回到顶部：和区块跳转一样在平滑滚动期间抑制滚动高亮，免得中途掠过其它区块
-   把高亮抢走；顺便清掉锚点，免得刷新后又落回刚才那个区块。滚完不会再触发滚动
-   事件，所以高亮得自己收尾到第一项。 */
-function scrollPageToTop(page){
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  pageNavLock = Date.now() + 700;
-  const first = page ? page.querySelector('.page-nav-item') : null;
-  if(first) setActivePageNav(page, first.dataset.target);
-  try {
-    const url = new URL(window.location.href);
-    history.replaceState(null, '', url.pathname + url.search);
-  } catch(e){}
-}
-
-function pageNavSpy(){
-  if(Date.now() < pageNavLock) return;
-  const page = document.querySelector('.main-page.active.page-nav-on');
-  if(!page) return;
-  const nav = page.querySelector('.page-nav');
-  if(!nav) return;
-  const items = Array.from(nav.querySelectorAll('.page-nav-item'));
-  if(!items.length) return;
-  const threshold = pageNavHeaderOffset(page) + 8;
-  let activeId = items[0].dataset.target;
-  for(const item of items){
-    const section = document.getElementById(item.dataset.target);
-    if(!section) continue;
-    if(section.getBoundingClientRect().top - threshold <= 0) activeId = item.dataset.target;
-    else break;
-  }
-  // 滚到底时高亮最后一项，否则末尾区块永远点不亮
-  if(window.innerHeight + window.pageYOffset >= document.documentElement.scrollHeight - 4){
-    activeId = items[items.length - 1].dataset.target;
-  }
-  setActivePageNav(page, activeId);
-}
-
-/* 滚动高亮：滚动事件本身已按帧节流，这里不再叠一层 requestAnimationFrame
-   （后台标签页会挂起 rAF，反而让高亮停在旧位置）。 */
-function onPageNavScroll(){
-  pageNavSpy();
-}
-
-function pageNavCollapsedPref(){
-  try { return localStorage.getItem(PAGE_NAV_COLLAPSE_KEY) === '1'; } catch(e){ return false; }
-}
-
-/* 收起与否只体现为页面上的一个类，样式和窄屏回退都由 CSS 决定；按钮的
-   文字/标题跟着状态走，收起后它就是唯一的入口。 */
-function applyPageNavCollapse(page, collapsed){
-  if(!page) return;
-  page.classList.toggle('page-nav-collapsed', !!collapsed);
-  const btn = page.querySelector('.page-sidebar-toggle');
-  if(!btn) return;
-  const label = collapsed ? '展开本页导航' : '收起本页导航';
-  btn.textContent = collapsed ? '»' : '«';
-  btn.title = label;
-  btn.setAttribute('aria-label', label);
-  btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-}
-
-function togglePageNavCollapse(page){
-  const collapsed = !page.classList.contains('page-nav-collapsed');
-  try { localStorage.setItem(PAGE_NAV_COLLAPSE_KEY, collapsed ? '1' : '0'); } catch(e){}
-  applyPageNavCollapse(page, collapsed);
-}
-
+/* 只给当前页参与导航的区块补上稳定锚点 id，不再创建任何侧栏/导航 DOM；
+   已有 id 的区块保持不动。 */
 function initPageNav(page){
   if(!page) return;
-  syncPageNavOffset();
-  const sections = pageNavSections(page);
-  const signature = pageNavSignature(page);
-  let sidebar = page.querySelector('.page-sidebar');
-
-  // 区块不足两项（例如日志页只有一个视图）就不给侧栏，页面保持单栏
-  if(sections.length < PAGE_NAV_MIN_SECTIONS){
-    if(sidebar) sidebar.remove();
-    page.classList.remove('page-nav-on', 'page-nav-collapsed');
-    delete page.dataset.pageNavSignature;
-    return;
-  }
-  // 清单没变就不动 DOM，保留现有高亮
-  if(sidebar && page.dataset.pageNavSignature === signature) return;
-
-  const taken = new Set(Array.from(document.querySelectorAll('[id]')).map(el => el.id));
-  const anchors = [];
-  sections.forEach(function(section, i){
-    const label = pageNavLabel(section, i);
-    let id = section.id;
-    if(!id){
-      id = pageNavAnchorId(label, taken);
-      section.id = id;
-    }
-    taken.add(id);
-    anchors.push({ id: id, label: label });
-  });
-
-  // 重建时保留原来的高亮，别因为一次重建就闪回第一项
-  const prevActive = sidebar ? sidebar.querySelector('.page-nav-item.active') : null;
-  const prevTarget = prevActive ? prevActive.dataset.target : null;
-
-  // 内容整体包一层：grid 里只剩「侧栏 + 内容」两项，侧栏才跨得满整个内容区，
-  // 区块之间的间距也不会被网格行间距再叠一次。
-  let body = page.querySelector('.page-nav-body');
-  if(!body){
-    body = document.createElement('div');
-    body.className = 'page-nav-body';
-    Array.from(page.children).forEach(function(el){ if(el !== sidebar) body.appendChild(el); });
-    page.appendChild(body);
-  }
-
-  if(!sidebar){
-    sidebar = document.createElement('aside');
-    sidebar.className = 'page-sidebar';
-    sidebar.setAttribute('aria-label', '本页区块导航');
-    page.insertBefore(sidebar, page.firstChild);
-  }
-  sidebar.textContent = '';
-  const head = document.createElement('div');
-  head.className = 'page-sidebar-head';
-  const title = document.createElement('div');
-  title.className = 'page-sidebar-title';
-  title.textContent = '本页导航';
-  head.appendChild(title);
-  const collapseBtn = document.createElement('button');
-  collapseBtn.type = 'button';
-  collapseBtn.className = 'page-sidebar-toggle';
-  collapseBtn.addEventListener('click', function(){ togglePageNavCollapse(page); });
-  head.appendChild(collapseBtn);
-  sidebar.appendChild(head);
-  applyPageNavCollapse(page, pageNavCollapsedPref());
-
-  // 排在区块清单之外：它不是一个区块，不参与高亮与滚动侦测；窄屏下也就能
-  // 留在横向胶囊行的左端，不跟着一起滚走。
-  const toTop = document.createElement('button');
-  toTop.type = 'button';
-  toTop.className = 'page-nav-top';
-  toTop.textContent = '↑ 回到顶部';
-  toTop.title = '回到顶部';
-  toTop.addEventListener('click', function(){ scrollPageToTop(page); });
-  sidebar.appendChild(toTop);
-
-  const nav = document.createElement('nav');
-  nav.className = 'page-nav';
-  anchors.forEach(function(a){
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'page-nav-item';
-    btn.dataset.target = a.id;
-    btn.textContent = a.label;
-    btn.title = a.label;
-    btn.addEventListener('click', function(){ scrollToPageSection(page, a.id); });
-    nav.appendChild(btn);
-  });
-  sidebar.appendChild(nav);
-
-  page.classList.add('page-nav-on');
-  page.dataset.pageNavSignature = signature;
-
-  if(!window.__pageNavBound){
-    window.__pageNavBound = true;
-    window.addEventListener('scroll', onPageNavScroll, { passive: true });
-    window.addEventListener('resize', function(){
-      syncPageNavOffset();
-      initPageNav(document.querySelector('.main-page.active'));
-      onPageNavScroll();
-    });
-  }
-  observePageNav();
-  const keep = prevTarget && anchors.some(function(a){ return a.id === prevTarget; });
-  setActivePageNav(page, keep ? prevTarget : anchors[0].id);
-  onPageNavScroll();
-}
-
-/* 区块在运行时可能增删或整块显隐（例如国内版的成长任务区块），让导航跟上，
-   免得侧栏停在旧清单上。只盯当前页：非当前页的变化在切过去时由 initPageNav()
-   重算，没必要在后台一直扫。 */
-function refreshPageNav(){
-  pageNavTimer = 0;
-  initPageNav(document.querySelector('.main-page.active'));
-}
-
-function observePageNav(){
-  if(window.__pageNavObserved || typeof MutationObserver === 'undefined') return;
-  window.__pageNavObserved = true;
-  const schedule = function(records){
-    // 导航自身重建/改高亮引起的变更不必再算一遍，否则滚动时会自激
-    if(records && records.every(function(r){
-      const el = r.target;
-      return el && el.closest && el.closest('.page-sidebar');
-    })) return;
-    if(pageNavTimer) clearTimeout(pageNavTimer);
-    pageNavTimer = setTimeout(refreshPageNav, 200);
-  };
-  new MutationObserver(schedule).observe(document.body, {
-    childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'],
+  const taken = new Set(Array.from(document.querySelectorAll('[id]')).map(function(el){ return el.id; }));
+  pageNavSections(page).forEach(function(section, i){
+    if(section.id){ taken.add(section.id); return; }
+    section.id = pageNavAnchorId(pageNavLabel(section, i), taken);
+    taken.add(section.id);
   });
 }
 
-/* 带 #锚点 打开时直接落到对应区块 */
+/* 带 #锚点 打开时直接落到对应区块（旧锚点兼容）。 */
 function restorePageNavHash(){
-  const page = document.querySelector('.main-page.active.page-nav-on');
+  const page = document.querySelector('.main-page.active');
   if(!page) return;
   const id = (window.location.hash || '').slice(1);
   if(!id) return;
   // 被隐藏的区块不进导航，也不该作为锚点落点（否则会滚到一个不可见的位置）
   const navigable = pageNavSections(page).some(function(s){ return s.id === id; });
-  if(navigable) scrollToPageSection(page, id, false);
+  if(navigable) scrollToPageSection(id, false);
 }
 
 // ==== 账号区折叠开始 ====
